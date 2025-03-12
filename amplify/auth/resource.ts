@@ -11,8 +11,14 @@ export const auth = defineAuth({
     //Configure social providers
     externalProviders: {
       google: {
-        clientId: secret('GOOGLE_CLIENT_ID'),
-        clientSecret: secret('GOOGLE_CLIENT_SECRET'),
+        clientId: secret('GoogleClientID'),
+        clientSecret: secret('GoogleClientSecret'),
+        scopes: ['email', 'given_name', 'family_name'],
+        attributeMapping: {
+          email: 'email',
+          givenName: 'given_name',
+          familyName: 'family_name',
+        },
       },
       //   signInWithApple: {
       //     clientId: secret('APPLE_CLIENT_ID'),
@@ -51,6 +57,10 @@ export const auth = defineAuth({
     "custom:email_updates": {
       mutable: true,
       dataType: "Boolean",
+    },
+    "custom:invest_strategy": {
+      mutable: true,
+      dataType: "String",
     },
   }
 });
