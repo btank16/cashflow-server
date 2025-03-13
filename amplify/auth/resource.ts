@@ -20,12 +20,18 @@ export const auth = defineAuth({
           familyName: 'family_name',
         },
       },
-      //   signInWithApple: {
-      //     clientId: secret('APPLE_CLIENT_ID'),
-      //     teamId: secret('APPLE_TEAM_ID'),
-      //     keyId: secret('APPLE_KEY_ID'),
-      //     privateKey: secret('APPLE_PRIVATE_KEY'),
-      //   }
+      signInWithApple: {
+        clientId: secret('AppleClientID'),
+        teamId: secret('AppleTeamID'),
+        keyId: secret('AppleKeyID'),
+        privateKey: secret('ApplePrivateKey'),
+        scopes: ['email', 'name'],
+        attributeMapping: {
+          email: 'email',
+          givenName: 'firstName',
+          familyName: 'lastName',
+        },
+      },
       callbackUrls: ["cashflow://"],
       logoutUrls: ["cashflow://"],
     }
