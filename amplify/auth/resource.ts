@@ -32,8 +32,8 @@ export const auth = defineAuth({
           familyName: 'lastName',
         },
       },
-      callbackUrls: ["cashflow://"],
-      logoutUrls: ["cashflow://"],
+      callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
+      logoutUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
     }
   },
   // Configure user attributes
