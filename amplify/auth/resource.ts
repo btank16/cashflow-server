@@ -28,6 +28,8 @@ export const auth = defineAuth({
         scopes: ['email', 'name'],
         attributeMapping: {
           email: 'email',
+          givenName: 'name.givenName',
+          familyName: 'name.familyName',
         },
       },
       callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
