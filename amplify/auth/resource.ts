@@ -16,8 +16,6 @@ export const auth = defineAuth({
         scopes: ['email', 'profile', 'openid'],
         attributeMapping: {
           email: 'email',
-          givenName: 'given_name',
-          familyName: 'family_name',
         },
       },
       signInWithApple: {
@@ -28,8 +26,6 @@ export const auth = defineAuth({
         scopes: ['email', 'name'],
         attributeMapping: {
           email: 'email',
-          givenName: 'firstName',
-          familyName: 'lastName',
         },
       },
       callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
@@ -38,14 +34,15 @@ export const auth = defineAuth({
   },
   // Configure user attributes
   userAttributes: {
-    // Standard attributes
-    givenName: {
-      required: true,
+    // Edited Standard attributes
+    // Removed the standard givenName and familyName due to conflict with OAuth (Apple)
+    "custom:firstName": {
       mutable: true,
+      dataType: "String",
     },
-    familyName: {
-      required: true,
+    "custom:lastName": {
       mutable: true,
+      dataType: "String",
     },
     // Custom attributes
     "custom:origin_state": {
@@ -57,7 +54,7 @@ export const auth = defineAuth({
       dataType: "String",
     },
     "custom:terms": {
-      mutable: false,
+      mutable: true,
       dataType: "Boolean",
     },
     "custom:email_updates": {
