@@ -65,5 +65,7 @@ export const auth = defineAuth({
       mutable: true,
       dataType: "String",
     },
-  }
+  },
+  // User groups
+  groups: ["basic", "premium"]
 });
