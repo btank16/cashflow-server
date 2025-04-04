@@ -1,4 +1,5 @@
 import { defineAuth, secret } from "@aws-amplify/backend";
+import { postSignup } from "./post-signup/resource";
 // import { secret } from "@aws-amplify/backend-shared";
 
 /**
@@ -67,5 +68,13 @@ export const auth = defineAuth({
     },
   },
   // User groups
-  groups: ["basic", "premium"]
+  groups: ["basic", "premium"],
+  // Add trigger to add users to the basic group
+  triggers: {
+    preSignUp: postSignup,
+  },
+  // Grant permission to add users to groups
+  access: (allow) => [
+    allow.resource(postSignup).to(["addUserToGroup"]),
+  ],
 });
