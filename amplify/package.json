@@ -1,7 +1,12 @@
 {
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0 <23.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.782.0"
+  },
   "devDependencies": {
-    "@aws-sdk/client-cognito-identity-provider": "^3.782.0",
     "@types/aws-lambda": "^8.10.148"
   }
 }
