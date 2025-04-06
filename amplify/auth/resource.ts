@@ -1,6 +1,5 @@
 import { defineAuth, secret } from "@aws-amplify/backend";
 // import { postSignup } from "./post-signup/resource";
-// import { secret } from "@aws-amplify/backend-shared";
 
 /**
  * Define and configure your auth resource

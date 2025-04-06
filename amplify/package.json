@@ -4,7 +4,11 @@
     "node": ">=20.0.0 <23.0.0"
   },
   "dependencies": {
-    "@aws-sdk/client-cognito-identity-provider": "^3.782.0"
+    "@aws-sdk/client-cognito-identity-provider": "^3.782.0",
+    "@aws-amplify/backend": "^1.14.3",
+    "aws-cdk-lib": "2.188.0",
+    "aws-cdk": "2.1007.0",
+    "lru-cache": "^10.2.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.148"
