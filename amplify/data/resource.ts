@@ -9,10 +9,7 @@ const schema = a.schema({
       input_values: a.string(),
       results: a.string()
     })
-    .authorization(allow => [
-      // Only allow users to access their own data
-      allow.owner().to(['create', 'read', 'update', 'delete'])
-    ])
+    .authorization(allow => [allow.owner()])
     .secondaryIndexes(index => [
       // Add secondary index on user_id for efficient queries
       index('user_id')
@@ -27,9 +24,7 @@ const schema = a.schema({
       frequency: a.string(),
       applicable_calculators: a.string()
     })
-    .authorization(allow => [
-      allow.owner().to(['create', 'read', 'update', 'delete'])
-    ])
+    .authorization(allow => [allow.owner()])
     .secondaryIndexes(index => [
       // Add secondary index on user_id for efficient queries
       index('user_id')
