@@ -3,9 +3,8 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 const schema = a.schema({
   Calculation: a
     .model({
-      id: a.id().required(),
       user_id: a.string(),
-      date: a.string(),
+      id: a.id().required(),
       calculator_type: a.string(),
       input_values: a.string(),
       results: a.string()
@@ -21,9 +20,8 @@ const schema = a.schema({
 
   Expense: a
     .model({
-      id: a.id().required(),
       user_id: a.string(),
-      date: a.string(),
+      id: a.id().required(),
       category: a.string(),
       cost: a.string(),
       frequency: a.string(),
