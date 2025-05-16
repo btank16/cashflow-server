@@ -1,11 +1,10 @@
 import { defineStorage } from '@aws-amplify/backend';
 
-export const cashflowBucket = defineStorage({
+export const storage = defineStorage({
     name: 'cashflowBucket',
-    isDefault: true,
     access: (allow) => ({
         'terms/*': [
-            allow.guest.to(['read']) //anyone can read terms and conditions
+            allow.guest.to(['read']) // anyone can read terms and conditions
         ]
     })
 });
