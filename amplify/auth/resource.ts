@@ -65,6 +65,10 @@ export const auth = defineAuth({
       mutable: true,
       dataType: "String",
     },
+    "custom:date_of_birth": {
+      mutable: false,
+      dataType: "String",
+    },
   },
   // User groups
   groups: ["basic", "premium"],
