@@ -66,7 +66,7 @@ export const auth = defineAuth({
       dataType: "String",
     },
     "custom:date_of_birth": {
-      mutable: false,
+      mutable: true,
       dataType: "String",
     },
   },
