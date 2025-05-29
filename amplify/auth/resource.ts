@@ -18,6 +18,7 @@ export const auth = defineAuth({
           email: 'email',
           givenName: 'given_name',
           familyName: 'family_name',
+          fullname: 'name',
         },
       },
       signInWithApple: {
@@ -30,6 +31,7 @@ export const auth = defineAuth({
           email: 'email',
           givenName: 'firstName',
           familyName: 'lastName',
+          fullname: 'name',
         },
       },
       callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
@@ -44,6 +46,10 @@ export const auth = defineAuth({
       mutable: true,
     },
     familyName: {
+      required: false,
+      mutable: true,
+    },
+    fullname: {
       required: false,
       mutable: true,
     },
