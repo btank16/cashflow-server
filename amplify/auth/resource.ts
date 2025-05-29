@@ -18,6 +18,7 @@ export const auth = defineAuth({
           email: 'email',
           givenName: 'given_name',
           familyName: 'family_name',
+          fullname: 'name',
         },
       },
       signInWithApple: {
