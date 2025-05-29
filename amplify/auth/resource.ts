@@ -25,11 +25,9 @@ export const auth = defineAuth({
         teamId: secret('AppleTeamID'),
         keyId: secret('AppleKeyID'),
         privateKey: secret('ApplePrivateKey'),
-        scopes: ['email', 'name'],
+        scopes: ['email', 'fullName'],
         attributeMapping: {
           email: 'email',
-          givenName: 'firstName',
-          familyName: 'lastName',
         },
       },
       callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
