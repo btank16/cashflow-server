@@ -25,9 +25,10 @@ export const auth = defineAuth({
         teamId: secret('AppleTeamID'),
         keyId: secret('AppleKeyID'),
         privateKey: secret('ApplePrivateKey'),
-        scopes: ['email', 'fullName'],
+        scopes: ['email', 'name'],
         attributeMapping: {
           email: 'email',
+          fullname: 'name',
         },
       },
       callbackUrls: ["cashflow://", "exp://127.0.0.1:8081/", "exp://192.168.1.101:8081/"],
@@ -42,6 +43,10 @@ export const auth = defineAuth({
       mutable: true,
     },
     familyName: {
+      required: false,
+      mutable: true,
+    },
+    fullname: {
       required: false,
       mutable: true,
     },
