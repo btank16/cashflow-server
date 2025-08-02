@@ -1,4 +1,5 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
+import { unitCount } from '../functions/unit_count/resource';
 
 const schema = a.schema({
   Calculation: a
@@ -28,7 +29,16 @@ const schema = a.schema({
     .secondaryIndexes(index => [
       // Add secondary index on user_id for efficient queries
       index('user_id')
-    ])
+    ]),
+
+  getUnitCount: a
+    .query()
+    .arguments({
+      address: a.string().required()
+    })
+    .returns(a.integer())
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(unitCount))
 });
 
 export type Schema = ClientSchema<typeof schema>;
