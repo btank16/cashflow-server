@@ -2,6 +2,14 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { unitCount } from '../functions/unit_count/resource';
 
 const schema = a.schema({
+  // Define the custom type for unit count result
+  UnitCountResult: a.customType({
+    unit_count: a.integer().required(),
+    bedrooms: a.integer().array(),
+    bathrooms: a.float().array(),
+    square_feet: a.integer().array()
+  }),
+
   Calculation: a
     .model({
       user_id: a.string(),
@@ -36,12 +44,7 @@ const schema = a.schema({
     .arguments({
       address: a.string().required()
     })
-    .returns(a.customType({
-      unit_count: a.integer().required(),
-      bedrooms: a.integer().array(),
-      bathrooms: a.float().array(),
-      square_feet: a.integer().array()
-    }))
+    .returns(a.ref('UnitCountResult'))
     .authorization(allow => [allow.authenticated()])
     .handler(a.handler.function(unitCount))
 });
