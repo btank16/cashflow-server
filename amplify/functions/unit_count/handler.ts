@@ -11,7 +11,7 @@ const unitCountSchema = {
     "bedrooms": {
       "type": "array",
       "items": {
-        "type": ["integer", "null"],
+        "type": "integer",
         "description": "Number of bedrooms per unit (0 for studio, null if unknown)"
       },
       "description": "Array of bedroom counts for each unit"
@@ -19,7 +19,7 @@ const unitCountSchema = {
     "bathrooms": {
       "type": "array",
       "items": {
-        "type": ["number", "null"],
+        "type": "number",
         "description": "Number of bathrooms per unit (can be decimal, null if unknown)"
       },
       "description": "Array of bathroom counts for each unit"
@@ -27,7 +27,7 @@ const unitCountSchema = {
     "square_feet": {
       "type": "array",
       "items": {
-        "type": ["integer", "null"],
+        "type": "integer",
         "description": "Square footage per unit (null if unknown)"
       },
       "description": "Array of square footages for each unit"
