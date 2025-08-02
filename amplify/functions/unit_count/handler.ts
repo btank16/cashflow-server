@@ -76,7 +76,6 @@ export const handler: Schema['getUnitCount']['functionHandler'] = async (event) 
       response_format: {
         type: 'json_schema',
         json_schema: {
-          name: 'unit_count_response',
           schema: unitCountSchema
         }
       }
