@@ -36,7 +36,12 @@ const schema = a.schema({
     .arguments({
       address: a.string().required()
     })
-    .returns(a.integer())
+    .returns(a.customType({
+      unit_count: a.integer().required(),
+      bedrooms: a.integer().array(),
+      bathrooms: a.float().array(),
+      square_feet: a.integer().array()
+    }))
     .authorization(allow => [allow.authenticated()])
     .handler(a.handler.function(unitCount))
 });

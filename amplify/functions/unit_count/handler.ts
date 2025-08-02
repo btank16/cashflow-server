@@ -7,9 +7,33 @@ const unitCountSchema = {
     "unit_count": {
       "type": "integer",
       "description": "The number of units at this address"
+    },
+    "bedrooms": {
+      "type": "array",
+      "items": {
+        "type": ["integer", "null"],
+        "description": "Number of bedrooms per unit (0 for studio, null if unknown)"
+      },
+      "description": "Array of bedroom counts for each unit"
+    },
+    "bathrooms": {
+      "type": "array",
+      "items": {
+        "type": ["number", "null"],
+        "description": "Number of bathrooms per unit (can be decimal, null if unknown)"
+      },
+      "description": "Array of bathroom counts for each unit"
+    },
+    "square_feet": {
+      "type": "array",
+      "items": {
+        "type": ["integer", "null"],
+        "description": "Square footage per unit (null if unknown)"
+      },
+      "description": "Array of square footages for each unit"
     }
   },
-  "required": ["unit_count"]
+  "required": ["unit_count", "bedrooms", "bathrooms", "square_feet"]
 };
 
 export const handler: Schema['getUnitCount']['functionHandler'] = async (event) => {
@@ -37,7 +61,7 @@ export const handler: Schema['getUnitCount']['functionHandler'] = async (event) 
     };
 
     // Create the prompt for unit count extraction
-    const prompt = `I need you to find infomation about the property at ${address}. Please find the number of residential units at this address. If it's a single-family home, the unit count is 1. Return ONLY the number as an integer.`;
+    const prompt = `I need you to find infomation about the property at ${address}. Please find the number of residential units at this address. If it's a single-family home, the unit count is 1. Once you find the number of units please find the number of bedrooms, bathrooms, and square feet in each unit. If a unit is a studio, please make the number of bedrooms 0. Please return the information in json format, as defined.`;
 
 
     // Prepare the request payload
@@ -76,8 +100,13 @@ export const handler: Schema['getUnitCount']['functionHandler'] = async (event) 
     // Extract the JSON response from Perplexity
     const unitInfo = JSON.parse(data.choices[0].message.content);
 
-    // Return only the unit count as an integer
-    return unitInfo.unit_count;
+    // Return the complete unit information
+    return {
+      unit_count: unitInfo.unit_count,
+      bedrooms: unitInfo.bedrooms || [],
+      bathrooms: unitInfo.bathrooms || [],
+      square_feet: unitInfo.square_feet || []
+    };
 
   } catch (error) {
     console.error('Error in unit count function:', error);
