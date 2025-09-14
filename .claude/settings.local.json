@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find:*)",
       "WebSearch",
-      "WebFetch(domain:docs.amplify.aws)"
+      "WebFetch(domain:docs.amplify.aws)",
+      "Read(//Users/blaketanski/code/github/cashflow-total/cashflow-testing/**)"
     ],
     "deny": [],
     "ask": []
