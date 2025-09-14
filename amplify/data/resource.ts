@@ -45,6 +45,7 @@ const schema = a.schema({
       address: a.string().required()
     })
     .returns(a.ref('UnitCountResult'))
+    .authorization(allow => [allow.guest()])
     .handler(a.handler.function(unitCount))
 });
 
