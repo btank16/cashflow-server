@@ -7,5 +7,7 @@ export const compSalesCollectNeighbor = defineFunction({
     PERPLEXITY_API_KEY: secret('PerplexityAPI')
   },
   timeoutSeconds: 30,
-  memoryMB: 150
+  memoryMB: 150,
+  architecture: 'arm64',
+  runtime: 22
 });

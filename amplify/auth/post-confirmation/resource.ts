@@ -6,5 +6,7 @@ export const postConfirmation = defineFunction({
     environment: {
         GROUP_NAME: 'basic'
     },
-    resourceGroupName: 'auth'
+    resourceGroupName: 'auth',
+    architecture: 'arm64',
+    runtime: 22
 });
