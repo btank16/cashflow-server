@@ -62,10 +62,10 @@ export const handler = async (event: any) => {
     // Make the API call with retry logic
     const response = await retryWithBackoff(async () => {
       return await client.chat({
-        model: 'sonar-pro',
+        model: 'sonar',
         systemPrompt: SYSTEM_PROMPT,
         userPrompt: userPrompt,
-        searchContextSize: 'high',
+        searchContextSize: 'low',
         jsonSchema: JSON_SCHEMA,
         searchDomainFilter: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
       });

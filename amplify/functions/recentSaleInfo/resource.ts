@@ -7,5 +7,5 @@ export const recentSaleInfo = defineFunction({
     PERPLEXITY_API_KEY: secret('PerplexityAPI')
   },
   timeoutSeconds: 30,
-  memoryMB: 512
+  memoryMB: 150
 });
