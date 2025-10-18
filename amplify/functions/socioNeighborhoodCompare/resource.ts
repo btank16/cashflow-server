@@ -1,9 +1,11 @@
 import { defineFunction, secret } from '@aws-amplify/backend';
 
-export const unitCount = defineFunction({
-  name: 'unit-count',
+export const socioNeighborhoodCompare = defineFunction({
+  name: 'socio-neighborhood-compare',
   entry: './handler.ts',
   environment: {
     PERPLEXITY_API_KEY: secret('PerplexityAPI')
-  }
+  },
+  timeoutSeconds: 30,
+  memoryMB: 512
 });

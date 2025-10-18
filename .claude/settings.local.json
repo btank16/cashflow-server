@@ -4,7 +4,8 @@
       "Bash(find:*)",
       "WebSearch",
       "WebFetch(domain:docs.amplify.aws)",
-      "Read(//Users/blaketanski/code/github/cashflow-total/cashflow-testing/**)"
+      "Read(//Users/blaketanski/code/github/cashflow-total/cashflow-testing/**)",
+      "WebFetch(domain:docs.perplexity.ai)"
     ],
     "deny": [],
     "ask": []

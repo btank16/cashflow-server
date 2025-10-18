@@ -1,15 +1,18 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
-import { unitCount } from '../functions/unit_count/resource';
+
+// Import all Lambda functions
+import { countyName } from '../functions/countyName/resource';
+import { neighborhoodName } from '../functions/neighborhoodName/resource';
+import { initialPropertyInfo } from '../functions/initialPropertyInfo/resource';
+import { propertyTaxRealtor } from '../functions/propertyTaxRealtor/resource';
+import { recentSaleInfo } from '../functions/recentSaleInfo/resource';
+import { interestRateFinal } from '../functions/interestRateFinal/resource';
+import { compSalesCollectNeighbor } from '../functions/compSalesCollectNeighbor/resource';
+import { compSalesCollectCity } from '../functions/compSalesCollectCity/resource';
+import { socioNeighborhoodCompare } from '../functions/socioNeighborhoodCompare/resource';
+import { cityCompare } from '../functions/cityCompare/resource';
 
 const schema = a.schema({
-  // Define the custom type for unit count result
-  UnitCountResult: a.customType({
-    unit_count: a.integer().required(),
-    bedrooms: a.integer().array(),
-    bathrooms: a.float().array(),
-    square_feet: a.integer().array()
-  }),
-
   Calculation: a
     .model({
       user_id: a.string(),
@@ -39,14 +42,126 @@ const schema = a.schema({
       index('user_id')
     ]),
 
-  getUnitCount: a
+  // Custom queries for Lambda functions
+  getCountyName: a
     .query()
     .arguments({
-      address: a.string().required()
+      city_name: a.string().required(),
+      state_name: a.string().required()
     })
-    .returns(a.ref('UnitCountResult'))
+    .returns(a.json())
     .authorization(allow => [allow.guest()])
-    .handler(a.handler.function(unitCount))
+    .handler(a.handler.function(countyName)),
+
+  getNeighborhoodName: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(neighborhoodName)),
+
+  getInitialPropertyInfo: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required(),
+      county_name: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(initialPropertyInfo)),
+
+  getPropertyTax: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required(),
+      year: a.integer().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(propertyTaxRealtor)),
+
+  getRecentSaleInfo: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(recentSaleInfo)),
+
+  getInterestRate: a
+    .query()
+    .arguments({
+      state_name: a.string().required(),
+      down_payment: a.float().required(),
+      loan_type: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(interestRateFinal)),
+
+  getCompSalesNeighborhood: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required(),
+      neighborhood: a.string().required(),
+      property_type: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(compSalesCollectNeighbor)),
+
+  getCompSalesCity: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required(),
+      property_type: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(compSalesCollectCity)),
+
+  getSocioNeighborhoodCompare: a
+    .query()
+    .arguments({
+      city: a.string().required(),
+      state: a.string().required(),
+      neighborhood: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(socioNeighborhoodCompare)),
+
+  getCityCompare: a
+    .query()
+    .arguments({
+      county_name: a.string().required(),
+      city_name: a.string().required(),
+      state_name: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(cityCompare))
 });
 
 export type Schema = ClientSchema<typeof schema>;
