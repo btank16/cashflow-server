@@ -83,10 +83,10 @@ export const handler = async (event: any) => {
     // Make the API call with retry logic - using sonar-pro for this complex query
     const response = await retryWithBackoff(async () => {
       return await client.chat({
-        model: 'sonar-pro',
+        model: 'sonar',
         systemPrompt: SYSTEM_PROMPT,
         userPrompt: userPrompt,
-        searchContextSize: 'medium',
+        searchContextSize: 'low',
         jsonSchema: JSON_SCHEMA
       });
     });
