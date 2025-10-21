@@ -23,6 +23,7 @@
     "@aws-sdk/client-cognito-identity-provider": "^3.782.0",
     "@perplexity-ai/perplexity_ai": "^0.11.0",
     "@types/aws-lambda": "^8.10.148",
+    "apify-client": "^2.19.0",
     "aws-amplify": "^6.13.1"
   }
 }

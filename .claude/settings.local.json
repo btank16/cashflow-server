@@ -5,7 +5,10 @@
       "WebSearch",
       "WebFetch(domain:docs.amplify.aws)",
       "Read(//Users/blaketanski/code/github/cashflow-total/cashflow-testing/**)",
-      "WebFetch(domain:docs.perplexity.ai)"
+      "WebFetch(domain:docs.perplexity.ai)",
+      "WebFetch(domain:docs.apify.com)",
+      "WebFetch(domain:apify.com)",
+      "WebFetch(domain:console.apify.com)"
     ],
     "deny": [],
     "ask": []
