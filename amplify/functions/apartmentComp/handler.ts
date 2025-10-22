@@ -64,7 +64,7 @@ export const handler = async (event: any) => {
       ? `${input.neighborhood}, ${input.city}, ${input.state}`
       : `${input.city}, ${input.state}`;
 
-    const userPrompt = `I need you to look for apartments in ${location}. Please look for apartments with ${input.bed_count} bedroom and ${input.bath_count} bathroom. I am looking for apartment units at residential addresses (not apartment buildings). Please list all the addresses you can find in an array.`;
+    const userPrompt = `I need you to look for places to rent in ${location}. Please look for units with ${input.bed_count} bedroom and ${input.bath_count} bathroom. I am looking for units at residential addresses (not apartment buildings). Please list all the addresses you can find in an array.`;
 
     // Make the API call with retry logic - using sonar-pro for this complex query
     const response = await retryWithBackoff(async () => {
