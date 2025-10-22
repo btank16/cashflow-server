@@ -11,6 +11,8 @@ import { compSalesCollectNeighbor } from '../functions/compSalesCollectNeighbor/
 import { compSalesCollectCity } from '../functions/compSalesCollectCity/resource';
 import { socioNeighborhoodCompare } from '../functions/socioNeighborhoodCompare/resource';
 import { cityCompare } from '../functions/cityCompare/resource';
+import { zillowZipSearch } from '../functions/zillowZipSearch/resource';
+import { apartmentComp } from '../functions/apartmentComp/resource';
 
 const schema = a.schema({
   Calculation: a
@@ -161,7 +163,37 @@ const schema = a.schema({
     })
     .returns(a.json())
     .authorization(allow => [allow.guest()])
-    .handler(a.handler.function(cityCompare))
+    .handler(a.handler.function(cityCompare)),
+
+  getZillowZipSearch: a
+    .query()
+    .arguments({
+      zipCodes: a.string().array().required(),
+      priceMin: a.float(),
+      priceMax: a.float(),
+      daysOnZillow: a.string(),
+      forSaleByAgent: a.boolean(),
+      forSaleByOwner: a.boolean(),
+      forRent: a.boolean(),
+      sold: a.boolean(),
+      maxItems: a.integer()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(zillowZipSearch)),
+
+  getApartmentComp: a
+    .query()
+    .arguments({
+      neighborhood: a.string(),
+      city: a.string().required(),
+      state: a.string().required(),
+      bed_count: a.string().required(),
+      bath_count: a.string().required()
+    })
+    .returns(a.json())
+    .authorization(allow => [allow.guest()])
+    .handler(a.handler.function(apartmentComp))
 });
 
 export type Schema = ClientSchema<typeof schema>;

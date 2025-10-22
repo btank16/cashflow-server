@@ -12,6 +12,7 @@ import { compSalesCollectCity } from './functions/compSalesCollectCity/resource'
 import { socioNeighborhoodCompare } from './functions/socioNeighborhoodCompare/resource';
 import { cityCompare } from './functions/cityCompare/resource';
 import { zillowZipSearch } from './functions/zillowZipSearch/resource';
+import { apartmentComp } from './functions/apartmentComp/resource';
 
 /**
  * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
@@ -29,6 +30,7 @@ const backend = defineBackend({
   compSalesCollectCity,
   socioNeighborhoodCompare,
   cityCompare,
-  zillowZipSearch
+  zillowZipSearch,
+  apartmentComp
 });
 
