@@ -161,3 +161,34 @@ export interface ZillowZipSearchOutput {
   runId: string;      // Apify run ID for reference
   datasetId: string;  // Dataset ID for reference
 }
+
+// ============================================
+// METRO AREA LOOKUP FUNCTION
+// ============================================
+export interface MetroAreaLookupInput {
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  stateCode?: string;
+  lookupType: 'neighborhood' | 'city' | 'state' | 'hierarchy';
+}
+
+export interface MetroAreaLookupOutput {
+  locationInfo?: {
+    neighborhood: string;
+    city: string;
+    state: string;
+    stateCode: string;
+  };
+  neighborhoods?: string[];
+  cities?: string[];
+  hierarchy?: {
+    state: string;
+    stateCode: string;
+    cities: Array<{
+      city: string;
+      neighborhoods: string[];
+    }>;
+  };
+  isValid?: boolean;
+}

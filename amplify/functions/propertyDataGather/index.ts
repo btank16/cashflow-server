@@ -18,6 +18,23 @@ export * from './types';
 // Location lookup functions
 export { getCountyName } from './functions/countyLookup';
 export { getNeighborhoodName } from './functions/neighborhoodLookup';
+export {
+  getMetroAreaInfo,
+  getLocationFromNeighborhood,
+  getStateFromCity,
+  isValidNeighborhood,
+  isValidCity,
+  isNeighborhoodInCity,
+  getNeighborhoodsForCity,
+  getCitiesInState,
+  getNeighborhoodsInState,
+  getStateHierarchy,
+  searchNeighborhoods,
+  NEIGHBORHOOD_TO_LOCATION,
+  CITY_TO_STATE,
+  type LocationInfo,
+  type StateHierarchy
+} from './functions/metroAreaLookup';
 
 // Property information functions
 export { getInitialPropertyInfo } from './functions/propertyDetails';

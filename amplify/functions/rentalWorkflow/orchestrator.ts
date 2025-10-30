@@ -14,7 +14,6 @@ import {
   RentalWorkflowInput,
   RentalWorkflowOutput,
   WorkflowState,
-  WorkflowStepResult,
   ParallelExecutionConfig
 } from './types';
 
