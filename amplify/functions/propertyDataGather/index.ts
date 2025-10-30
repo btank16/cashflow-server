@@ -53,7 +53,12 @@ export { getSimilarAreas } from './functions/similarAreas';
 // Rental search functions
 export { getApartmentComps } from './functions/apartmentSearch';
 
-// Note: Zillow search uses Apify and will be added separately when needed
+// Zillow search function (uses Apify)
+export {
+  searchZillowByZip,
+  validateZipCodes,
+  buildZillowSearchUrl
+} from './functions/zillowZipSearch';
 
 // ============================================
 // WORKFLOW HELPERS
