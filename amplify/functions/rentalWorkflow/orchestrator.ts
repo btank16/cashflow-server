@@ -309,6 +309,9 @@ export class RentalWorkflowOrchestrator {
         zipCodes: [this.state.input.zip],
         daysOnZillow: this.state.config.zillowDaysBack,
         sold: true,
+        forSaleByAgent: false,
+        forSaleByOwner: false,
+        forRent: false,
         maxItems: this.state.config.maxZillowResults
       });
 
