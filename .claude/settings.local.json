@@ -8,7 +8,9 @@
       "WebFetch(domain:docs.perplexity.ai)",
       "WebFetch(domain:docs.apify.com)",
       "WebFetch(domain:apify.com)",
-      "WebFetch(domain:console.apify.com)"
+      "WebFetch(domain:console.apify.com)",
+      "Bash(mkdir:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []
