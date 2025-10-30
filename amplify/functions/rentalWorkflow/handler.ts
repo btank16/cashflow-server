@@ -10,9 +10,9 @@ import { RentalWorkflowInput, RentalWorkflowOutput } from './types';
 /**
  * Lambda handler function
  * @param event - The input event containing address information
- * @returns The workflow output with all gathered property data
+ * @returns The workflow output with all gathered property data or error response
  */
-export const handler = async (event: any): Promise<any> => {
+export const handler = async (event: any) => {
   console.log('Rental Workflow started:', JSON.stringify(event));
   const startTime = Date.now();
 
@@ -55,51 +55,16 @@ export const handler = async (event: any): Promise<any> => {
       totalExecutionTime: Date.now() - startTime
     });
 
-    // Return the workflow result
-    return {
-      statusCode: result.success ? 200 : 207, // 207 for partial success
-      body: JSON.stringify(result),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
+    // Return the workflow result directly (matches other Lambda functions pattern)
+    return result;
 
   } catch (error) {
     console.error('Handler error:', error);
 
-    // Return a structured error response
-    const errorResponse: RentalWorkflowOutput = {
-      success: false,
-      completedSteps: [],
-      failedSteps: ['handler'],
-      data: {
-        address: {
-          street: '',
-          city: '',
-          state: '',
-          zip: ''
-        }
-      },
-      metadata: {
-        totalApiCalls: 0,
-        totalExecutionTime: Date.now() - startTime,
-        workflowStartTime: new Date(startTime).toISOString(),
-        workflowEndTime: new Date().toISOString(),
-        stepDetails: []
-      },
-      errors: [{
-        step: 'handler',
-        error: error instanceof Error ? error.message : 'An unexpected error occurred',
-        code: 'HANDLER_ERROR'
-      }]
-    };
-
-    return {
-      statusCode: 500,
-      body: JSON.stringify(errorResponse),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
+    // Return error using standard error response format
+    return createErrorResponse(
+      error instanceof Error ? error.message : 'An unexpected error occurred',
+      'HANDLER_ERROR'
+    );
   }
 };
