@@ -12,7 +12,10 @@ import { retryWithBackoff } from '../../common';
 import {
   FunctionResult,
   ZillowZipSearchInput,
-  ZillowZipSearchOutput
+  ZillowZipSearchOutput,
+  ProcessedZillowData,
+  ZillowPropertyInfo,
+  ZillowHomeTypeStats
 } from '../types';
 
 // Actor ID for the Zillow ZIP search scraper
@@ -20,6 +23,135 @@ const ACTOR_ID = 'maxcopell/zillow-zip-search';
 
 // Valid days on Zillow options
 const VALID_DAYS_ON_ZILLOW = ['1', '7', '14', '30', '90', '6m', '12m', '24m', '36m'];
+
+/**
+ * Process raw Zillow property data into organized structure by homeType
+ * @param rawProperties Array of raw property data from Zillow
+ * @returns Processed and organized data
+ */
+function processZillowProperties(rawProperties: any[]): ProcessedZillowData {
+  const byHomeType: { [key: string]: ZillowHomeTypeStats } = {};
+  const allPrices: number[] = [];
+  const homeTypes = new Set<string>();
+
+  // First pass: organize properties by homeType
+  rawProperties.forEach(item => {
+    const homeInfo = item?.hdpData?.homeInfo;
+    if (!homeInfo) return;
+
+    const homeType = homeInfo.homeType || 'UNKNOWN';
+    homeTypes.add(homeType);
+
+    // Extract and calculate property information
+    const propertyInfo: ZillowPropertyInfo = {
+      address: homeInfo.streetAddress || 'N/A',
+      price: homeInfo.price || 0,
+      pricePerSqFt: (homeInfo.price && homeInfo.livingArea)
+        ? Math.round(homeInfo.price / homeInfo.livingArea)
+        : null,
+      pricePerBedroom: (homeInfo.price && homeInfo.bedrooms > 0)
+        ? Math.round(homeInfo.price / homeInfo.bedrooms)
+        : null,
+      bedrooms: homeInfo.bedrooms || 0,
+      bathrooms: homeInfo.bathrooms || 0,
+      livingArea: homeInfo.livingArea || null,
+      zipcode: homeInfo.zipcode || '',
+      city: homeInfo.city || '',
+      state: homeInfo.state || '',
+      homeStatus: homeInfo.homeStatus || '',
+      daysOnZillow: homeInfo.daysOnZillow || 0,
+      zestimate: homeInfo.zestimate,
+      rentZestimate: homeInfo.rentZestimate
+    };
+
+    // Initialize homeType group if needed
+    if (!byHomeType[homeType]) {
+      byHomeType[homeType] = {
+        properties: [],
+        statistics: {
+          count: 0,
+          minPrice: Infinity,
+          maxPrice: -Infinity,
+          medianPrice: 0,
+          avgPrice: 0,
+          avgPricePerSqFt: null,
+          avgPricePerBedroom: null
+        }
+      };
+    }
+
+    // Add property to its homeType group
+    byHomeType[homeType].properties.push(propertyInfo);
+
+    if (homeInfo.price) {
+      allPrices.push(homeInfo.price);
+    }
+  });
+
+  // Second pass: calculate statistics for each homeType
+  Object.keys(byHomeType).forEach(homeType => {
+    const group = byHomeType[homeType];
+    const prices = group.properties
+      .map(p => p.price)
+      .filter(p => p > 0)
+      .sort((a, b) => a - b);
+
+    if (prices.length > 0) {
+      // Basic price statistics
+      group.statistics.count = group.properties.length;
+      group.statistics.minPrice = Math.min(...prices);
+      group.statistics.maxPrice = Math.max(...prices);
+      group.statistics.avgPrice = Math.round(
+        prices.reduce((sum, p) => sum + p, 0) / prices.length
+      );
+
+      // Calculate median
+      const mid = Math.floor(prices.length / 2);
+      group.statistics.medianPrice = prices.length % 2 === 0
+        ? Math.round((prices[mid - 1] + prices[mid]) / 2)
+        : prices[mid];
+
+      // Calculate average price per sq ft
+      const pricesPerSqFt = group.properties
+        .map(p => p.pricePerSqFt)
+        .filter(p => p !== null) as number[];
+
+      if (pricesPerSqFt.length > 0) {
+        group.statistics.avgPricePerSqFt = Math.round(
+          pricesPerSqFt.reduce((sum, p) => sum + p, 0) / pricesPerSqFt.length
+        );
+      }
+
+      // Calculate average price per bedroom
+      const pricesPerBedroom = group.properties
+        .map(p => p.pricePerBedroom)
+        .filter(p => p !== null) as number[];
+
+      if (pricesPerBedroom.length > 0) {
+        group.statistics.avgPricePerBedroom = Math.round(
+          pricesPerBedroom.reduce((sum, p) => sum + p, 0) / pricesPerBedroom.length
+        );
+      }
+    }
+  });
+
+  // Calculate overall summary
+  const validPrices = allPrices.filter(p => p > 0);
+  const summary = {
+    totalProperties: rawProperties.length,
+    homeTypes: Array.from(homeTypes).sort(),
+    priceRange: {
+      min: validPrices.length > 0 ? Math.min(...validPrices) : 0,
+      max: validPrices.length > 0 ? Math.max(...validPrices) : 0
+    },
+    dateProcessed: new Date().toISOString()
+  };
+
+  return {
+    byHomeType,
+    summary
+  };
+}
 
 /**
  * Search for properties in specified ZIP codes using Zillow via Apify
@@ -178,9 +310,13 @@ export async function searchZillowByZip(
       };
     }
 
-    // Format the output
+    // Process the raw data to organize by homeType
+    const processedData = processZillowProperties(items);
+
+    // Format the output with both raw and processed data
     const output: ZillowZipSearchOutput = {
-      properties: items,
+      properties: items,  // Raw data
+      processedData: processedData,  // Organized and analyzed data
       totalCount: items.length,
       runId: runInfo.id,
       datasetId: runInfo.defaultDatasetId
@@ -292,4 +428,89 @@ export function buildZillowSearchUrl(
   }
 
   return url;
+}
+
+/**
+ * Get summary statistics for a specific home type from processed data
+ * @param processedData The processed Zillow data
+ * @param homeType The specific home type to get stats for
+ * @returns Statistics for the home type or null if not found
+ */
+export function getHomeTypeStats(
+  processedData: ProcessedZillowData,
+  homeType: string
+): ZillowHomeTypeStats | null {
+  return processedData.byHomeType[homeType] || null;
+}
+
+/**
+ * Get all addresses for a specific home type from processed data
+ * @param processedData The processed Zillow data
+ * @param homeType The specific home type
+ * @returns Array of addresses for that home type
+ */
+export function getAddressesByHomeType(
+  processedData: ProcessedZillowData,
+  homeType: string
+): string[] {
+  const stats = processedData.byHomeType[homeType];
+  if (!stats) return [];
+
+  return stats.properties.map(p => `${p.address}, ${p.city}, ${p.state} ${p.zipcode}`);
+}
+
+/**
+ * Filter processed data by price range
+ * @param processedData The processed Zillow data
+ * @param minPrice Minimum price filter
+ * @param maxPrice Maximum price filter
+ * @returns Filtered processed data
+ */
+export function filterByPriceRange(
+  processedData: ProcessedZillowData,
+  minPrice?: number,
+  maxPrice?: number
+): ProcessedZillowData {
+  const filteredByHomeType: { [key: string]: ZillowHomeTypeStats } = {};
+
+  Object.entries(processedData.byHomeType).forEach(([homeType, stats]) => {
+    const filteredProperties = stats.properties.filter(p => {
+      if (minPrice && p.price < minPrice) return false;
+      if (maxPrice && p.price > maxPrice) return false;
+      return true;
+    });
+
+    if (filteredProperties.length > 0) {
+      // Recalculate statistics for filtered properties
+      const prices = filteredProperties.map(p => p.price).filter(p => p > 0).sort((a, b) => a - b);
+      const mid = Math.floor(prices.length / 2);
+
+      filteredByHomeType[homeType] = {
+        properties: filteredProperties,
+        statistics: {
+          count: filteredProperties.length,
+          minPrice: Math.min(...prices),
+          maxPrice: Math.max(...prices),
+          medianPrice: prices.length % 2 === 0
+            ? Math.round((prices[mid - 1] + prices[mid]) / 2)
+            : prices[mid],
+          avgPrice: Math.round(prices.reduce((sum, p) => sum + p, 0) / prices.length),
+          avgPricePerSqFt: stats.statistics.avgPricePerSqFt,
+          avgPricePerBedroom: stats.statistics.avgPricePerBedroom
+        }
+      };
+    }
+  });
+
+  return {
+    byHomeType: filteredByHomeType,
+    summary: {
+      ...processedData.summary,
+      totalProperties: Object.values(filteredByHomeType).reduce((sum, s) => sum + s.properties.length, 0),
+      priceRange: {
+        min: minPrice || processedData.summary.priceRange.min,
+        max: maxPrice || processedData.summary.priceRange.max
+      }
+    }
+  };
 }

@@ -155,8 +155,54 @@ export interface ZillowZipSearchInput {
   maxItems?: number;  // Limit for pay-per-result
 }
 
+export interface ZillowPropertyInfo {
+  address: string;
+  price: number;
+  pricePerSqFt: number | null;
+  pricePerBedroom: number | null;
+  bedrooms: number;
+  bathrooms: number;
+  livingArea: number | null;
+  zipcode: string;
+  city: string;
+  state: string;
+  homeStatus: string;
+  daysOnZillow: number;
+  zestimate?: number;
+  rentZestimate?: number;
+}
+
+export interface ZillowHomeTypeStats {
+  properties: ZillowPropertyInfo[];
+  statistics: {
+    count: number;
+    minPrice: number;
+    maxPrice: number;
+    medianPrice: number;
+    avgPrice: number;
+    avgPricePerSqFt: number | null;
+    avgPricePerBedroom: number | null;
+  };
+}
+
+export interface ProcessedZillowData {
+  byHomeType: {
+    [homeType: string]: ZillowHomeTypeStats;
+  };
+  summary: {
+    totalProperties: number;
+    homeTypes: string[];
+    priceRange: {
+      min: number;
+      max: number;
+    };
+    dateProcessed: string;
+  };
+}
+
 export interface ZillowZipSearchOutput {
-  properties: any[];  // Array of property listings (hdpData field only)
+  properties: any[];  // Array of property listings (hdpData field only) - raw data
+  processedData: ProcessedZillowData;  // Organized and analyzed data
   totalCount: number;
   runId: string;      // Apify run ID for reference
   datasetId: string;  // Dataset ID for reference

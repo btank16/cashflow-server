@@ -57,7 +57,10 @@ export { getApartmentComps } from './functions/apartmentSearch';
 export {
   searchZillowByZip,
   validateZipCodes,
-  buildZillowSearchUrl
+  buildZillowSearchUrl,
+  getHomeTypeStats,
+  getAddressesByHomeType,
+  filterByPriceRange
 } from './functions/zillowZipSearch';
 
 // ============================================
