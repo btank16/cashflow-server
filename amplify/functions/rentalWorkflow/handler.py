@@ -26,13 +26,13 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     """
     Lambda handler function.
 
     Args:
         event: The input event containing address information
-        context: Lambda context object
+        _context: Lambda context object (unused)
 
     Returns:
         The workflow output with all gathered property data or error response

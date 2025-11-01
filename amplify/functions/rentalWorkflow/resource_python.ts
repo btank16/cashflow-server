@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { defineFunction } from '@aws-amplify/backend';
 import { DockerImage, Duration } from 'aws-cdk-lib';
 import { Architecture, Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 const functionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,7 +61,7 @@ export const rentalWorkflow = defineFunction(
 
     // Grant Lambda permission to read SSM parameters at runtime
     lambdaFunction.addToRolePolicy(
-      new (require('aws-cdk-lib/aws-iam').PolicyStatement)({
+      new PolicyStatement({
         actions: ['ssm:GetParameter', 'ssm:GetParameters'],
         resources: [
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`,
