@@ -7,9 +7,9 @@ import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineFunction } from '@aws-amplify/backend';
-import { DockerImage, Duration, Stack } from 'aws-cdk-lib';
+import { DockerImage, Duration } from 'aws-cdk-lib';
 import { Architecture, Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 
 const functionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -54,26 +54,26 @@ export const rentalWorkflow = defineFunction(
       }),
     });
 
-    // Reference secrets from AWS Secrets Manager
-    // These should match the secret names defined in Amplify backend
-    const perplexitySecret = secretsmanager.Secret.fromSecretNameV2(
+    // Reference existing Amplify secrets from SSM Parameter Store
+    // Amplify's secret() function creates SSM parameters with this naming pattern
+    const perplexityParam = ssm.StringParameter.fromStringParameterName(
       scope,
-      'PerplexitySecret',
-      'PerplexityAPI'
+      'PerplexityParam',
+      '/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI'
     );
-    const apifySecret = secretsmanager.Secret.fromSecretNameV2(
+    const apifyParam = ssm.StringParameter.fromStringParameterName(
       scope,
-      'ApifySecret',
-      'ApifyAPI'
+      'ApifyParam',
+      '/amplify/shared/d1yieg8lf5bsxx/ApifyAPI'
     );
 
-    // Grant read access to secrets
-    perplexitySecret.grantRead(lambdaFunction);
-    apifySecret.grantRead(lambdaFunction);
+    // Grant read access to parameters
+    perplexityParam.grantRead(lambdaFunction);
+    apifyParam.grantRead(lambdaFunction);
 
-    // Add environment variables with secret ARNs
-    lambdaFunction.addEnvironment('PERPLEXITY_API_KEY', perplexitySecret.secretValue.unsafeUnwrap());
-    lambdaFunction.addEnvironment('APIFY_API_KEY', apifySecret.secretValue.unsafeUnwrap());
+    // Add environment variables with parameter values
+    lambdaFunction.addEnvironment('PERPLEXITY_API_KEY', perplexityParam.stringValue);
+    lambdaFunction.addEnvironment('APIFY_API_KEY', apifyParam.stringValue);
 
     return lambdaFunction;
   },
