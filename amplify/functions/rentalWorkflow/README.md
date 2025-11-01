@@ -134,12 +134,24 @@ The workflow automatically detects if a city is in the Ohio metro area dataset a
 - `python-dotenv==1.2.1`: Environment variable management
 - `tenacity==9.1.2`: Retry logic
 - `typing-extensions==4.15.0`: Type hints
+- `boto3==1.35.89`: AWS SDK for SSM parameter retrieval
 
 ## Environment Variables
 
 Required:
-- `PERPLEXITY_API_KEY`: Perplexity API key (from AWS Secrets Manager)
-- `APIFY_API_KEY`: Apify API key (from AWS Secrets Manager)
+- `PERPLEXITY_PARAM_NAME`: SSM parameter name for Perplexity API key (e.g., `/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`)
+- `APIFY_PARAM_NAME`: SSM parameter name for Apify API key (e.g., `/amplify/shared/d1yieg8lf5bsxx/ApifyAPI`)
+
+The Lambda function uses the centralized `get_api_clients_from_env()` utility from `propertyDataGather.common` to:
+1. Read SSM parameter names from environment variables
+2. Retrieve and decrypt actual API keys from AWS Systems Manager Parameter Store at runtime
+3. Initialize and return ready-to-use PerplexityClient and ApifyClient instances
+
+This approach:
+- Avoids AWS Secrets Manager costs ($0.80/month per secret)
+- Uses existing Amplify secrets stored as SSM SecureString parameters
+- Provides in-memory caching to reduce SSM API calls
+- Centralizes secrets management across all Python Lambda functions
 
 ## Configuration
 
@@ -208,13 +220,21 @@ To test locally:
 cd amplify/functions/rentalWorkflow
 pip install -r requirements.txt
 
-# Set environment variables
-export PERPLEXITY_API_KEY="your-key"
-export APIFY_API_KEY="your-key"
+# Set environment variables with SSM parameter names
+export PERPLEXITY_PARAM_NAME="/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI"
+export APIFY_PARAM_NAME="/amplify/shared/d1yieg8lf5bsxx/ApifyAPI"
+
+# Ensure AWS credentials are configured for SSM access
+# aws configure
 
 # Run handler
 python -c "from handler import handler; print(handler({'street': '123 Main St', 'city': 'Columbus', 'state': 'Ohio', 'zip': '43215'}, None))"
 ```
+
+Note: Local testing requires:
+- Valid AWS credentials with SSM read permissions
+- Access to the SSM parameters in your AWS account
+- The `boto3` package installed
 
 ## Architecture
 

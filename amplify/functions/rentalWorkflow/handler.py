@@ -6,7 +6,6 @@ Entry point for the rental property data gathering workflow.
 import asyncio
 import json
 import logging
-import os
 import time
 from typing import Dict, Any
 
@@ -15,7 +14,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from propertyDataGather.common import PerplexityClient, validate_input, create_error_response
+from propertyDataGather.common import (
+    validate_input,
+    create_error_response,
+    get_api_clients_from_env
+)
 from orchestrator import RentalWorkflowOrchestrator
 
 # Configure logging
@@ -53,20 +56,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'VALIDATION_ERROR'
             )
 
-        # Get the API key
-        api_key = os.environ.get('PERPLEXITY_API_KEY')
-        if not api_key:
-            logger.error('Perplexity API key not configured')
+        # Retrieve API clients from SSM Parameter Store via environment variables
+        try:
+            perplexity_client, apify_client = get_api_clients_from_env()
+        except ValueError as error:
+            logger.error(f'Configuration error: {error}')
             return create_error_response(
-                'Perplexity API key not configured',
+                str(error),
+                'CONFIG_ERROR'
+            )
+        except Exception as error:
+            logger.error(f'Failed to retrieve API clients: {error}')
+            return create_error_response(
+                'Failed to initialize API clients',
                 'CONFIG_ERROR'
             )
 
-        # Initialize Perplexity client
-        client = PerplexityClient(api_key)
-
         # Initialize and execute the workflow orchestrator
-        orchestrator = RentalWorkflowOrchestrator(client, input_data)
+        orchestrator = RentalWorkflowOrchestrator(perplexity_client, apify_client, input_data)
 
         # Run the async workflow
         result = asyncio.run(orchestrator.execute())

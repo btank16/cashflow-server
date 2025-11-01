@@ -18,6 +18,11 @@ from .utils import (
     extract_data
 )
 from .perplexity_client import PerplexityClient, PerplexityRequest
+from .aws_clients import (
+    AWSSecretsManager,
+    get_ssm_parameter,
+    get_api_clients_from_env
+)
 
 __all__ = [
     'ErrorCode',
@@ -34,5 +39,8 @@ __all__ = [
     'is_success',
     'extract_data',
     'PerplexityClient',
-    'PerplexityRequest'
+    'PerplexityRequest',
+    'AWSSecretsManager',
+    'get_ssm_parameter',
+    'get_api_clients_from_env'
 ]

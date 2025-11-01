@@ -45,11 +45,13 @@ class RentalWorkflowOrchestrator:
 
     def __init__(
         self,
-        client: PerplexityClient,
+        perplexity_client: PerplexityClient,
+        apify_client: Any,
         input_data: Dict[str, Any],
         config: Optional[Dict[str, Any]] = None
     ):
-        self.client = client
+        self.client = perplexity_client
+        self.apify_client = apify_client
 
         # Parse input
         workflow_input = RentalWorkflowInput(**input_data)
@@ -278,7 +280,8 @@ class RentalWorkflowOrchestrator:
                     'forSaleByOwner': False,
                     'forRent': False,
                     'maxItems': self.state.config.max_zillow_results
-                }
+                },
+                self.apify_client
             )
 
             self.state.steps['zillowSearch'] = WorkflowStepResult(
