@@ -1,0 +1,6 @@
+perplexityai==0.19.1
+apify-client==2.2.1
+pydantic==2.12.3
+python-dotenv==1.2.1
+tenacity==9.1.2
+typing-extensions==4.15.0
