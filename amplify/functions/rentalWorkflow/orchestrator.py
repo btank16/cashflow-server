@@ -9,10 +9,11 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
-# Add parent directory to path for imports
+# Lambda automatically sets /var/task/ in sys.path, but we ensure it's there
+# This allows imports of propertyDataGather module
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from propertyDataGather.functions import (
     get_county_name,

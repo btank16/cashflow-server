@@ -9,10 +9,11 @@ import logging
 import time
 from typing import Dict, Any
 
-# Add parent directory to path for imports
+# Lambda automatically sets /var/task/ in sys.path, but we ensure it's there
+# This allows imports of propertyDataGather module and local modules
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from propertyDataGather.common import (
     validate_input,

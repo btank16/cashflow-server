@@ -26,9 +26,10 @@ export const rentalWorkflow = defineFunction(
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Install Python dependencies
+              // Install Python dependencies with platform-specific flags for ARM64 Linux
+              // This ensures binary compatibility with Lambda runtime
               execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir}`,
+                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_aarch64 --only-binary=:all: --implementation cp --python-version 3.12 --abi cp312`,
                 { stdio: 'inherit' }
               );
 
