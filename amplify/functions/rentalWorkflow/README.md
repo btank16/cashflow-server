@@ -180,7 +180,7 @@ Non-metro cities will skip the neighborhood lookup step.
 
 ```python
 # Direct function invocation (for testing)
-from handler import handler
+from index import handler
 
 event = {
     "street": "123 Main St",
@@ -228,7 +228,7 @@ export APIFY_PARAM_NAME="/amplify/shared/d1yieg8lf5bsxx/ApifyAPI"
 # aws configure
 
 # Run handler
-python -c "from handler import handler; print(handler({'street': '123 Main St', 'city': 'Columbus', 'state': 'Ohio', 'zip': '43215'}, None))"
+python -c "from index import handler; print(handler({'street': '123 Main St', 'city': 'Columbus', 'state': 'Ohio', 'zip': '43215'}, None))"
 ```
 
 Note: Local testing requires:
@@ -239,7 +239,7 @@ Note: Local testing requires:
 ## Architecture
 
 ```
-handler.py
+index.py (Lambda handler)
     ↓
 orchestrator.py
     ↓

@@ -16,7 +16,7 @@ const functionDir = path.dirname(fileURLToPath(import.meta.url));
 export const rentalWorkflow = defineFunction(
   (scope) => {
     const lambdaFunction = new Function(scope, 'rentalWorkflow', {
-      handler: 'handler.handler',
+      handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
       timeout: Duration.seconds(180), // 3 minutes timeout for workflow execution
       memorySize: 512, // 512 MB memory for handling multiple API calls
@@ -26,27 +26,25 @@ export const rentalWorkflow = defineFunction(
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Install Python dependencies with platform-specific flags for ARM64 Linux
-              // This ensures binary compatibility with Lambda runtime
+              // Install Python dependencies for ARM64 Linux (Lambda runtime)
+              // Following AWS Amplify Gen 2 documentation pattern with ARM64 platform
               execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_aarch64 --only-binary=:all: --implementation cp --python-version 3.12 --abi cp312`,
+                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_aarch64 --only-binary=:all:`,
                 { stdio: 'inherit' }
               );
 
-              // Copy all Python files from rentalWorkflow directory
-              execSync(`cp ${path.join(functionDir, '*.py')} ${outputDir}`, {
-                stdio: 'inherit',
-              });
-
-              // Copy the entire propertyDataGather module
-              const propertyDataGatherDir = path.join(
-                functionDir,
-                '..',
-                'propertyDataGather'
+              // Copy Python source files (index.py, orchestrator.py, types.py)
+              execSync(
+                `cp ${path.join(functionDir, '*.py')} ${outputDir}`,
+                { stdio: 'inherit' }
               );
-              execSync(`cp -r ${propertyDataGatherDir} ${outputDir}`, {
-                stdio: 'inherit',
-              });
+
+              // Copy the propertyDataGather module
+              const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
+              execSync(
+                `cp -r ${propertyDataGatherDir} ${outputDir}`,
+                { stdio: 'inherit' }
+              );
 
               return true;
             },
