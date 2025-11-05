@@ -1,7 +1,7 @@
 # Core dependencies for rental workflow Lambda
 perplexityai==0.19.1
 apify-client==2.2.1
-pydantic==2.5.3
-tenacity==9.1.2
-typing-extensions==4.9.0
+pydantic>=2.5.3,<3.0.0
+tenacity>=9.1.0,<10.0.0
+typing-extensions>=4.10.0,<5.0.0
 # Note: boto3 is provided by Lambda runtime but needed for local imports
