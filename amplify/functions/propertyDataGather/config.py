@@ -1,11 +1,9 @@
 """Configuration module for propertyDataGather functions."""
 
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# API Keys
+# API Keys (for local development only - Lambda uses SSM)
+# These are not used in Lambda deployment, only for local testing
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
 APIFY_API_KEY = os.getenv('APIFY_API_KEY')
 
