@@ -1,6 +1,6 @@
 /**
  * AWS CDK Resource Configuration for Rental Workflow Lambda (Python)
- * Following AWS Amplify Gen 2 documentation pattern exactly
+ * Following AWS Amplify Gen 2 documentation pattern 
  */
 
 import { execSync } from 'node:child_process';
