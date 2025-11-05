@@ -253,12 +253,19 @@ Note: Local testing requires:
 - Access to the SSM parameters in your AWS account
 - The `boto3` package installed
 
+## Module Structure
+
+- `index.py` - Lambda handler entry point
+- `orchestrator.py` - Workflow orchestration logic
+- `workflow_types.py` - Pydantic models and type definitions (renamed from `types.py` to avoid conflicts with Python's built-in `types` module)
+- `requirements.txt` - Python dependencies
+
 ## Architecture
 
 ```
 index.py (Lambda handler)
     ↓
-orchestrator.py
+orchestrator.py (imports workflow_types)
     ↓
 ┌─────────────────────────────┐
 │  Phase 1: Sequential       │

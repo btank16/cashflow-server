@@ -27,7 +27,8 @@ from propertyDataGather.functions import (
 )
 from propertyDataGather.common import PerplexityClient, FunctionResult
 
-from .types import (
+# Import from local workflow_types module (renamed from types.py to avoid conflict with built-in types module)
+from workflow_types import (
     RentalWorkflowInput,
     RentalWorkflowOutput,
     WorkflowConfig,
