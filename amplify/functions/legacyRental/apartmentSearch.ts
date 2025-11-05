@@ -7,12 +7,12 @@
  * @dependencies Can optionally use neighborhood from getNeighborhoodName()
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
   ApartmentCompInput,
   ApartmentCompOutput
-} from '../types';
+} from '../propertyDataGather/types';
 
 const SYSTEM_PROMPT = "Only give me the value requested in the JSON format. If you are not able to get search results or find relevant information, please state that clearly rather than providing speculative information. Do this by leaving the json field empty if you cannot find relevant information";
 

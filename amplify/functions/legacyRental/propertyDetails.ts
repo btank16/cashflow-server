@@ -7,7 +7,7 @@
  * @dependencies Requires county_name from getCountyName()
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
   InitialPropertyInfoInput,

@@ -7,7 +7,7 @@
  * @dependencies If county_name is needed, it should come from getCountyName()
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
   SimilarAreasInput,

@@ -7,7 +7,7 @@
  * @dependencies None
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
   PropertyTaxRealtorInput,

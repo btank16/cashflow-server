@@ -8,7 +8,7 @@
  */
 
 import { ApifyClient } from 'apify-client';
-import { retryWithBackoff } from '../../common';
+import { retryWithBackoff } from '../common';
 import {
   FunctionResult,
   ZillowZipSearchInput,
@@ -205,9 +205,9 @@ export async function searchZillowByZip(
 
     // Validate that at least one property type is selected if any are specified
     const allFalse = input.forSaleByAgent === false &&
-                     input.forSaleByOwner === false &&
-                     input.forRent === false &&
-                     input.sold === false;
+      input.forSaleByOwner === false &&
+      input.forRent === false &&
+      input.sold === false;
     if (allFalse) {
       return {
         success: false,

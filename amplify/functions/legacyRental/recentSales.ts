@@ -1,17 +1,17 @@
 /**
- * Interest Rate Lookup Function
- * Gets current interest rates based on state, down payment, and loan type
+ * Recent Sales Info Function
+ * Gets recent sale date and price for a property
  *
- * @input state_name, down_payment, loan_type
- * @output interest_rate
+ * @input street, city, state, zip
+ * @output sale_date, sale_price
  * @dependencies None
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
-  InterestRateFinalInput,
-  InterestRateFinalOutput
+  RecentSaleInfoInput,
+  RecentSaleInfoOutput
 } from '../types';
 
 const SYSTEM_PROMPT = "Only give me the value requested in the JSON format. If you are not able to get search results or find relevant information, please state that clearly rather than providing speculative information. Do this by leaving the json field empty if you cannot find relevant information.";
@@ -22,37 +22,41 @@ const JSON_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        interest_rate: { type: "number" }
+        sale_date: { type: "string" },
+        sale_price: { type: "number" }
       },
-      required: ["interest_rate"]
+      required: ["sale_date", "sale_price"]
     }
   }
 };
 
 /**
- * Get current interest rate for a loan
+ * Get recent sale information for a property
  * @param client PerplexityClient instance
- * @param input State, down payment, and loan type information
- * @returns Interest rate or error
+ * @param input Address information
+ * @returns Sale date and price or error
  */
-export async function getInterestRate(
+export async function getRecentSaleInfo(
   client: PerplexityClient,
-  input: InterestRateFinalInput
-): Promise<FunctionResult<InterestRateFinalOutput>> {
+  input: RecentSaleInfoInput
+): Promise<FunctionResult<RecentSaleInfoOutput>> {
   const startTime = Date.now();
 
   try {
     // Validate input
-    if (!input.state_name || input.down_payment === undefined || !input.loan_type) {
+    const requiredFields = ['street', 'city', 'state', 'zip'];
+    const missingFields = requiredFields.filter(field => !input[field as keyof RecentSaleInfoInput]);
+
+    if (missingFields.length > 0) {
       return {
         success: false,
-        error: 'State name, down payment, and loan type are required',
+        error: `Missing required fields: ${missingFields.join(', ')}`,
         errorCode: 'VALIDATION_ERROR'
       };
     }
 
     // Build the prompt
-    const userPrompt = `I need you to find me mortgage rates for a ${input.loan_type} mortgage in ${input.state_name}. Note that I am putting ${input.down_payment}% down as a down payment`;
+    const userPrompt = `I need you to look into price and sale history for the property at: ${input.street}, ${input.city}, ${input.state} ${input.zip}. Please provide me with the date the property sold (mm-dd-yyyy) and the sale price. If the property is currently for sale, reply with "for sale" as the sale date.`;
 
     // Make the API call
     const response = await client.chat({
@@ -61,7 +65,7 @@ export async function getInterestRate(
       userPrompt: userPrompt,
       searchContextSize: 'low',
       jsonSchema: JSON_SCHEMA,
-      searchDomainFilter: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
+      searchDomainFilter: ['realtor.com', 'redfin.com']
     });
 
     // Check if the API call was successful
@@ -74,23 +78,23 @@ export async function getInterestRate(
           apiCalls: 1,
           executionTime: Date.now() - startTime,
           model: 'sonar',
-          searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
+          searchDomains: ['realtor.com', 'redfin.com']
         }
       };
     }
 
     // Validate the response data
-    const data = response.data as InterestRateFinalOutput;
-    if (!data || typeof data.interest_rate !== 'number') {
+    const data = response.data as RecentSaleInfoOutput;
+    if (!data || !data.sale_date || typeof data.sale_price !== 'number') {
       return {
         success: false,
-        error: 'Unable to find interest rate information for the specified criteria',
+        error: 'Unable to find recent sale information for the specified address',
         errorCode: 'NO_DATA',
         metadata: {
           apiCalls: 1,
           executionTime: Date.now() - startTime,
           model: 'sonar',
-          searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
+          searchDomains: ['realtor.com', 'redfin.com']
         }
       };
     }
@@ -103,7 +107,7 @@ export async function getInterestRate(
         apiCalls: 1,
         executionTime: Date.now() - startTime,
         model: 'sonar',
-        searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
+        searchDomains: ['realtor.com', 'redfin.com']
       }
     };
 

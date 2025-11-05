@@ -14,7 +14,7 @@ import {
   searchZillowByZip,
   FunctionResult,
   isValidCity
-} from '../propertyDataGather';
+} from '.';
 import {
   RentalWorkflowInput,
   RentalWorkflowOutput,

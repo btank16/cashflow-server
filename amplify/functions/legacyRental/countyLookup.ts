@@ -1,17 +1,17 @@
 /**
- * Recent Sales Info Function
- * Gets recent sale date and price for a property
+ * County Lookup Function
+ * Determines the county name for a given city and state
  *
- * @input street, city, state, zip
- * @output sale_date, sale_price
+ * @input city_name, state_name
+ * @output county_name
  * @dependencies None
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
-  RecentSaleInfoInput,
-  RecentSaleInfoOutput
+  CountyNameInput,
+  CountyNameOutput
 } from '../types';
 
 const SYSTEM_PROMPT = "Only give me the value requested in the JSON format. If you are not able to get search results or find relevant information, please state that clearly rather than providing speculative information. Do this by leaving the json field empty if you cannot find relevant information.";
@@ -22,41 +22,37 @@ const JSON_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        sale_date: { type: "string" },
-        sale_price: { type: "number" }
+        county_name: { type: "string" }
       },
-      required: ["sale_date", "sale_price"]
+      required: ["county_name"]
     }
   }
 };
 
 /**
- * Get recent sale information for a property
+ * Get the county name for a given city and state
  * @param client PerplexityClient instance
- * @param input Address information
- * @returns Sale date and price or error
+ * @param input City and state information
+ * @returns County name or error
  */
-export async function getRecentSaleInfo(
+export async function getCountyName(
   client: PerplexityClient,
-  input: RecentSaleInfoInput
-): Promise<FunctionResult<RecentSaleInfoOutput>> {
+  input: CountyNameInput
+): Promise<FunctionResult<CountyNameOutput>> {
   const startTime = Date.now();
 
   try {
     // Validate input
-    const requiredFields = ['street', 'city', 'state', 'zip'];
-    const missingFields = requiredFields.filter(field => !input[field as keyof RecentSaleInfoInput]);
-
-    if (missingFields.length > 0) {
+    if (!input.city_name || !input.state_name) {
       return {
         success: false,
-        error: `Missing required fields: ${missingFields.join(', ')}`,
+        error: 'City name and state name are required',
         errorCode: 'VALIDATION_ERROR'
       };
     }
 
     // Build the prompt
-    const userPrompt = `I need you to look into price and sale history for the property at: ${input.street}, ${input.city}, ${input.state} ${input.zip}. Please provide me with the date the property sold (mm-dd-yyyy) and the sale price. If the property is currently for sale, reply with "for sale" as the sale date.`;
+    const userPrompt = `What county is ${input.city_name} ${input.state_name} in? Just provide me with the county name`;
 
     // Make the API call
     const response = await client.chat({
@@ -64,8 +60,7 @@ export async function getRecentSaleInfo(
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: userPrompt,
       searchContextSize: 'low',
-      jsonSchema: JSON_SCHEMA,
-      searchDomainFilter: ['realtor.com', 'redfin.com']
+      jsonSchema: JSON_SCHEMA
     });
 
     // Check if the API call was successful
@@ -77,24 +72,22 @@ export async function getRecentSaleInfo(
         metadata: {
           apiCalls: 1,
           executionTime: Date.now() - startTime,
-          model: 'sonar',
-          searchDomains: ['realtor.com', 'redfin.com']
+          model: 'sonar'
         }
       };
     }
 
     // Validate the response data
-    const data = response.data as RecentSaleInfoOutput;
-    if (!data || !data.sale_date || typeof data.sale_price !== 'number') {
+    const data = response.data as CountyNameOutput;
+    if (!data || !data.county_name) {
       return {
         success: false,
-        error: 'Unable to find recent sale information for the specified address',
+        error: 'Unable to find county information for the specified location',
         errorCode: 'NO_DATA',
         metadata: {
           apiCalls: 1,
           executionTime: Date.now() - startTime,
-          model: 'sonar',
-          searchDomains: ['realtor.com', 'redfin.com']
+          model: 'sonar'
         }
       };
     }
@@ -107,7 +100,7 @@ export async function getRecentSaleInfo(
         apiCalls: 1,
         executionTime: Date.now() - startTime,
         model: 'sonar',
-        searchDomains: ['realtor.com', 'redfin.com']
+        searchDomains: [] // No domain filter used
       }
     };
 

@@ -5,7 +5,7 @@
  * @dependencies If neighborhood is provided, it should come from getNeighborhoodName()
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
   ComparableSalesInput,

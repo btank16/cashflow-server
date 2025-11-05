@@ -1,17 +1,17 @@
 /**
- * County Lookup Function
- * Determines the county name for a given city and state
+ * Interest Rate Lookup Function
+ * Gets current interest rates based on state, down payment, and loan type
  *
- * @input city_name, state_name
- * @output county_name
+ * @input state_name, down_payment, loan_type
+ * @output interest_rate
  * @dependencies None
  */
 
-import { PerplexityClient } from '../../common';
+import { PerplexityClient } from '../common';
 import {
   FunctionResult,
-  CountyNameInput,
-  CountyNameOutput
+  InterestRateFinalInput,
+  InterestRateFinalOutput
 } from '../types';
 
 const SYSTEM_PROMPT = "Only give me the value requested in the JSON format. If you are not able to get search results or find relevant information, please state that clearly rather than providing speculative information. Do this by leaving the json field empty if you cannot find relevant information.";
@@ -22,37 +22,37 @@ const JSON_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        county_name: { type: "string" }
+        interest_rate: { type: "number" }
       },
-      required: ["county_name"]
+      required: ["interest_rate"]
     }
   }
 };
 
 /**
- * Get the county name for a given city and state
+ * Get current interest rate for a loan
  * @param client PerplexityClient instance
- * @param input City and state information
- * @returns County name or error
+ * @param input State, down payment, and loan type information
+ * @returns Interest rate or error
  */
-export async function getCountyName(
+export async function getInterestRate(
   client: PerplexityClient,
-  input: CountyNameInput
-): Promise<FunctionResult<CountyNameOutput>> {
+  input: InterestRateFinalInput
+): Promise<FunctionResult<InterestRateFinalOutput>> {
   const startTime = Date.now();
 
   try {
     // Validate input
-    if (!input.city_name || !input.state_name) {
+    if (!input.state_name || input.down_payment === undefined || !input.loan_type) {
       return {
         success: false,
-        error: 'City name and state name are required',
+        error: 'State name, down payment, and loan type are required',
         errorCode: 'VALIDATION_ERROR'
       };
     }
 
     // Build the prompt
-    const userPrompt = `What county is ${input.city_name} ${input.state_name} in? Just provide me with the county name`;
+    const userPrompt = `I need you to find me mortgage rates for a ${input.loan_type} mortgage in ${input.state_name}. Note that I am putting ${input.down_payment}% down as a down payment`;
 
     // Make the API call
     const response = await client.chat({
@@ -60,7 +60,8 @@ export async function getCountyName(
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: userPrompt,
       searchContextSize: 'low',
-      jsonSchema: JSON_SCHEMA
+      jsonSchema: JSON_SCHEMA,
+      searchDomainFilter: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
     });
 
     // Check if the API call was successful
@@ -72,22 +73,24 @@ export async function getCountyName(
         metadata: {
           apiCalls: 1,
           executionTime: Date.now() - startTime,
-          model: 'sonar'
+          model: 'sonar',
+          searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
         }
       };
     }
 
     // Validate the response data
-    const data = response.data as CountyNameOutput;
-    if (!data || !data.county_name) {
+    const data = response.data as InterestRateFinalOutput;
+    if (!data || typeof data.interest_rate !== 'number') {
       return {
         success: false,
-        error: 'Unable to find county information for the specified location',
+        error: 'Unable to find interest rate information for the specified criteria',
         errorCode: 'NO_DATA',
         metadata: {
           apiCalls: 1,
           executionTime: Date.now() - startTime,
-          model: 'sonar'
+          model: 'sonar',
+          searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
         }
       };
     }
@@ -100,7 +103,7 @@ export async function getCountyName(
         apiCalls: 1,
         executionTime: Date.now() - startTime,
         model: 'sonar',
-        searchDomains: [] // No domain filter used
+        searchDomains: ['freddiemac.com', 'nerdwallet.com', 'bankrate.com']
       }
     };
 

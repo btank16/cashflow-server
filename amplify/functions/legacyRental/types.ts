@@ -13,12 +13,12 @@ import {
   InterestRateFinalOutput,
   PropertyTaxRealtorOutput,
   ApartmentCompOutput
-} from '../propertyDataGather/types';
+} from './types';
 
 /**
  * Input for the rental workflow - uses the common Address type
  */
-export interface RentalWorkflowInput extends Address {}
+export interface RentalWorkflowInput extends Address { }
 
 /**
  * Configuration options for the rental workflow

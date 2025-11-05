@@ -16,8 +16,8 @@ export * from './types';
 // ============================================
 
 // Location lookup functions
-export { getCountyName } from './functions/countyLookup';
-export { getNeighborhoodName } from './functions/neighborhoodLookup';
+export { getCountyName } from './countyLookup';
+export { getNeighborhoodName } from './neighborhoodLookup';
 export {
   getMetroAreaInfo,
   getLocationFromNeighborhood,
@@ -34,24 +34,24 @@ export {
   CITY_TO_STATE,
   type LocationInfo,
   type StateHierarchy
-} from './functions/metroAreaLookup';
+} from './metroAreaLookup';
 
 // Property information functions
-export { getInitialPropertyInfo } from './functions/propertyDetails';
-export { getPropertyTax } from './functions/propertyTax';
-export { getRecentSaleInfo } from './functions/recentSales';
+export { getInitialPropertyInfo } from './propertyDetails';
+export { getPropertyTax } from './propertyTax';
+export { getRecentSaleInfo } from './recentSales';
 
 // Financial functions
-export { getInterestRate } from './functions/interestRates';
+export { getInterestRate } from './interestRates';
 
 // Comparable sales function
-export { getComparableSales } from './functions/comparableSales';
+export { getComparableSales } from './comparableSales';
 
 // Similar areas function
-export { getSimilarAreas } from './functions/similarAreas';
+export { getSimilarAreas } from './similarAreas';
 
 // Rental search functions
-export { getApartmentComps } from './functions/apartmentSearch';
+export { getApartmentComps } from './apartmentSearch';
 
 // Zillow search function (uses Apify)
 export {
@@ -61,7 +61,7 @@ export {
   getHomeTypeStats,
   getAddressesByHomeType,
   filterByPriceRange
-} from './functions/zillowZipSearch';
+} from './zillowZipSearch';
 
 // ============================================
 // WORKFLOW HELPERS
