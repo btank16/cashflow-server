@@ -18,33 +18,22 @@ export const rentalWorkflow = defineFunction(
     const lambdaFunction = new Function(scope, 'rentalWorkflow', {
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
-      timeout: Duration.seconds(180), // 3 minutes timeout for workflow execution
-      memorySize: 512, // 512 MB memory for handling multiple API calls
+      timeout: Duration.seconds(300),
+      memorySize: 512,
       architecture: Architecture.ARM_64,
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Install Python dependencies for ARM64 Linux (Lambda runtime)
-              // Following AWS Amplify Gen 2 documentation pattern with ARM64 platform
+              // Simple pip install - let pip handle platform compatibility
               execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_aarch64 --only-binary=:all:`,
+                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir}`,
                 { stdio: 'inherit' }
               );
 
-              // Copy Python source files (index.py, orchestrator.py, types.py)
-              execSync(
-                `cp ${path.join(functionDir, '*.py')} ${outputDir}`,
-                { stdio: 'inherit' }
-              );
-
-              // Copy the propertyDataGather module
-              const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
-              execSync(
-                `cp -r ${propertyDataGatherDir} ${outputDir}`,
-                { stdio: 'inherit' }
-              );
+              // Copy all function files (simpler than selective copying)
+              execSync(`cp -r ${functionDir}/* ${outputDir}/`, { stdio: 'inherit' });
 
               return true;
             },

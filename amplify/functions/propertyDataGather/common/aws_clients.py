@@ -3,8 +3,16 @@
 import os
 import logging
 from typing import Optional, Dict, Tuple, Any
-import boto3
-from botocore.exceptions import ClientError
+
+try:
+    # In Lambda runtime, boto3 is pre-installed
+    import boto3
+    from botocore.exceptions import ClientError
+except ImportError:
+    # For local development, boto3 needs to be installed
+    import sys
+    print("Warning: boto3 not found. Install it for local testing: pip install boto3", file=sys.stderr)
+    raise
 
 logger = logging.getLogger(__name__)
 
