@@ -46,7 +46,6 @@ export const rentalWorkflow = defineFunction(
       }),
     });
 
-    // Store parameter names as environment variables (not the actual values)
     // Lambda will read the actual SecureString values from SSM at runtime
     lambdaFunction.addEnvironment('PERPLEXITY_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI');
     lambdaFunction.addEnvironment('APIFY_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/ApifyAPI');
