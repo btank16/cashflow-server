@@ -32,8 +32,12 @@ export const rentalWorkflow = defineFunction(
                 { stdio: 'inherit' }
               );
 
-              // Copy all function files (simpler than selective copying)
-              execSync(`cp -r ${functionDir}/* ${outputDir}/`, { stdio: 'inherit' });
+              // Copy all Python files from rentalWorkflow directory
+              execSync(`cp -r ${functionDir}/*.py ${outputDir}/`, { stdio: 'inherit' });
+
+              // Copy the propertyDataGather module (critical - was missing!)
+              const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
+              execSync(`cp -r ${propertyDataGatherDir} ${outputDir}/`, { stdio: 'inherit' });
 
               return true;
             },
