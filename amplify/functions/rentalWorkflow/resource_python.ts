@@ -1,6 +1,6 @@
 /**
  * AWS CDK Resource Configuration for Rental Workflow Lambda (Python)
- * Defines the Python Lambda function and its configuration
+ * Following AWS Amplify Gen 2 documentation pattern exactly
  */
 
 import { execSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineFunction } from '@aws-amplify/backend';
 import { DockerImage, Duration } from 'aws-cdk-lib';
-import { Architecture, Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 const functionDir = path.dirname(fileURLToPath(import.meta.url));
@@ -20,24 +20,23 @@ export const rentalWorkflow = defineFunction(
       runtime: Runtime.PYTHON_3_12,
       timeout: Duration.seconds(300),
       memorySize: 512,
-      architecture: Architecture.X86_64,
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Install packages for x86_64 Lambda runtime
+              // Following exact documentation pattern with path.join
               execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_x86_64 --only-binary=:all:`,
+                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${path.join(outputDir)} --platform manylinux2014_x86_64 --only-binary=:all:`,
                 { stdio: 'inherit' }
               );
 
-              // Copy all Python files from rentalWorkflow directory
-              execSync(`cp -r ${functionDir}/*.py ${outputDir}/`, { stdio: 'inherit' });
+              // Copy all files from function directory (as per documentation)
+              execSync(`cp -r ${functionDir}/* ${path.join(outputDir)}`, { stdio: 'inherit' });
 
-              // Copy the propertyDataGather module (critical - was missing!)
+              // Additionally copy the propertyDataGather module
               const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
-              execSync(`cp -r ${propertyDataGatherDir} ${outputDir}/`, { stdio: 'inherit' });
+              execSync(`cp -r ${propertyDataGatherDir} ${path.join(outputDir)}/propertyDataGather`, { stdio: 'inherit' });
 
               return true;
             },
