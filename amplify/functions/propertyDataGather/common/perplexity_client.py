@@ -12,7 +12,24 @@ logger = logging.getLogger(__name__)
 
 
 class PerplexityRequest(BaseModel):
-    """Request configuration for Perplexity API."""
+    """
+    Request configuration for Perplexity API.
+    
+    When json_schema is provided, the API will use response_format with 
+    json_schema mode to return structured JSON output that conforms to the schema.
+    
+    Example:
+        request = PerplexityRequest(
+            model='sonar-pro',
+            system_prompt='You are a helpful assistant',
+            user_prompt='Extract financial data',
+            json_schema={
+                'type': 'object',
+                'properties': {'revenue': {'type': 'number'}},
+                'required': ['revenue']
+            }
+        )
+    """
     model: str = 'sonar'
     system_prompt: str = ''
     user_prompt: str
@@ -74,6 +91,16 @@ class PerplexityClient:
             if web_search_options:
                 kwargs['web_search_options'] = web_search_options
 
+            # Add response_format if json_schema is provided
+            # This uses Perplexity's native JSON mode for structured output
+            if request.json_schema:
+                kwargs['response_format'] = {
+                    'type': 'json_schema',
+                    'json_schema': {
+                        'schema': request.json_schema
+                    }
+                }
+
             # Make the API call
             response = self.client.chat.completions.create(**kwargs)
 
@@ -82,20 +109,24 @@ class PerplexityClient:
                 content = response.choices[0].message.content
 
                 # Parse JSON if schema provided
+                # When using response_format with json_schema, Perplexity returns clean JSON
                 if request.json_schema:
                     try:
-                        # Extract JSON from content if wrapped in markdown
-                        if '```json' in content:
-                            json_start = content.find('```json') + 7
-                            json_end = content.find('```', json_start)
-                            json_str = content[json_start:json_end].strip()
-                        elif '```' in content:
-                            # Handle cases with just ``` without json
-                            json_start = content.find('```') + 3
-                            json_end = content.find('```', json_start)
-                            json_str = content[json_start:json_end].strip()
-                        else:
-                            json_str = content.strip()
+                        # With native JSON mode, content should be clean JSON
+                        # But we'll still handle potential markdown wrapping as fallback
+                        json_str = content.strip()
+                        
+                        # Remove markdown code blocks if present (shouldn't be needed with json_schema mode)
+                        if json_str.startswith('```json'):
+                            json_start = json_str.find('```json') + 7
+                            json_end = json_str.find('```', json_start)
+                            if json_end != -1:
+                                json_str = json_str[json_start:json_end].strip()
+                        elif json_str.startswith('```'):
+                            json_start = json_str.find('```') + 3
+                            json_end = json_str.find('```', json_start)
+                            if json_end != -1:
+                                json_str = json_str[json_start:json_end].strip()
 
                         data = json.loads(json_str)
                         return create_success_response(
@@ -109,13 +140,14 @@ class PerplexityClient:
                     except json.JSONDecodeError as e:
                         logger.error(f"JSON parsing error: {e}")
                         logger.error(f"Raw content: {content}")
-                        # Try to return raw content as fallback
-                        return create_success_response(
-                            data={'raw_content': content},
+                        # Return error instead of fallback to encourage proper error handling
+                        return create_error_response(
+                            f"Failed to parse JSON response: {str(e)}",
+                            ErrorCode.DATA_VALIDATION_ERROR,
                             metadata=FunctionMetadata(
                                 api_calls=1,
                                 model=request.model,
-                                extra={'json_parse_error': str(e)}
+                                extra={'raw_content': content, 'json_parse_error': str(e)}
                             )
                         )
                 else:
