@@ -66,13 +66,9 @@ def get_county_name(
     # Build Perplexity request
     user_prompt = f"What county is {county_input.city_name} {county_input.state_name} in? Just provide me with the county name"
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "county_name": {"type": "string"}
-        },
-        "required": ["county_name"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    # This ensures field names match exactly what Pydantic expects
+    json_schema = CountyNameOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

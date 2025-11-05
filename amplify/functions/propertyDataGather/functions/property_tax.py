@@ -68,13 +68,8 @@ def get_property_tax(
     # Build Perplexity request
     user_prompt = f"I need you to look into the property history at a home in {tax_input.city} {tax_input.state}. Please find the {tax_input.year} taxes for the property at the following address: {tax_input.street}, {tax_input.city}, {tax_input.state} {tax_input.zip}"
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "annual_taxes": {"type": "number"}
-        },
-        "required": ["annual_taxes"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = PropertyTaxRealtorOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

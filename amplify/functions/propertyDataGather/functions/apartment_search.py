@@ -75,16 +75,8 @@ def get_apartment_comps(
     # Build Perplexity request
     user_prompt = f"I need you to look for places to rent in {location}. Please look for units with {apt_input.bed_count} bedroom and {apt_input.bath_count} bathroom. I am looking for units at residential addresses (not apartment buildings). Please list all the addresses you can find in an array."
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "addresses": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        },
-        "required": ["addresses"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = ApartmentCompOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar-pro',

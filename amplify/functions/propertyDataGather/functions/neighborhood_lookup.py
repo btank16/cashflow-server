@@ -67,13 +67,8 @@ def get_neighborhood_name(
     # Build Perplexity request
     user_prompt = f"I need you to tell me what neighborhood of {neighborhood_input.city} {neighborhood_input.state} the following address is in: {neighborhood_input.street}, {neighborhood_input.city}, {neighborhood_input.state} {neighborhood_input.zip}. Please provide only the neighborhood name in your response"
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "neighborhood": {"type": "string"}
-        },
-        "required": ["neighborhood"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = NeighborhoodNameOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

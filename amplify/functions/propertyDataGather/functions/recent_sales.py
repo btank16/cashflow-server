@@ -68,14 +68,8 @@ def get_recent_sale_info(
     # Build Perplexity request
     user_prompt = f"I need you to look into price and sale history for the property at: {sale_input.street}, {sale_input.city}, {sale_input.state} {sale_input.zip}. Please provide me with the date the property sold (mm-dd-yyyy) and the sale price. If the property is currently for sale, reply with \"for sale\" as the sale date."
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "sale_date": {"type": "string"},
-            "sale_price": {"type": "number"}
-        },
-        "required": ["sale_date", "sale_price"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = RecentSaleInfoOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

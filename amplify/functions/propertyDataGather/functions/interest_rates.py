@@ -66,13 +66,8 @@ def get_interest_rate(
     # Build Perplexity request
     user_prompt = f"I need you to find me mortgage rates for a {rate_input.loan_type} mortgage in {rate_input.state_name}. Note that I am putting {rate_input.down_payment}% down as a down payment"
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "interest_rate": {"type": "number"}
-        },
-        "required": ["interest_rate"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = InterestRateFinalOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

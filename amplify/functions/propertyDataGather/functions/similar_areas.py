@@ -96,16 +96,8 @@ def get_similar_areas(
         user_prompt = f"I need you to review the socioeconomic and demographic data of {countyName} {stateName}. Please also review each individual city of {countyName} as well. Please tell me the two cities that are similar in socioeconomic status and demographics as {cityName}."
 
     # Build Perplexity request
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "similar_neighborhoods": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        },
-        "required": ["similar_neighborhoods"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = SimilarAreasOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

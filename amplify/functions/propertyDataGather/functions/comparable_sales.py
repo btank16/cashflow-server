@@ -77,16 +77,8 @@ def get_comparable_sales(
     # Build Perplexity request
     user_prompt = f"I am looking to purchase a {comp_input.property_type} home at {comp_input.street}, {comp_input.city}, {comp_input.state} {comp_input.zip}. I need you to find a comparable {comp_input.property_type} properties that have sold recently in {searchScope}. Please note the difference between properties for sale and properties that have sold. Provide the address of all the properties that you can find in an array."
 
-    json_schema = {
-        "type": "object",
-        "properties": {
-            "addresses": {
-                "type": "array",
-                "items": {"type": "string"}
-            }
-        },
-        "required": ["addresses"]
-    }
+    # Use Pydantic's model_json_schema() for proper schema generation
+    json_schema = ComparableSalesOutput.model_json_schema()
 
     request = PerplexityRequest(
         model='sonar',

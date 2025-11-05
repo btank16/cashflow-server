@@ -176,22 +176,8 @@ def get_initial_property_info(
         # Build Perplexity request
         user_prompt = f"I need you to find property information on the home at {property_input.street}, {property_input.city}, {property_input.state} {property_input.zip}. Please search online real estate sites and the {property_input.county_name} county website where public information is posted on properties. I need you to find the following information and present it in json format: number of units, total square footage, total beds, total baths, square footage of each unit, bedrooms in each unit, and bathrooms in each unit."
 
-        json_schema = {
-            "type": "object",
-            "properties": {
-                "total_units": {"type": "integer"},
-                "total_sq_ft": {"type": "integer"},
-                "total_beds": {"type": "integer"},
-                "total_bath": {"type": "integer"},
-                "unit_sq_ft": {"type": "array", "items": {"type": "integer"}},
-                "unit_bed": {"type": "array", "items": {"type": "integer"}},
-                "unit_bath": {"type": "array", "items": {"type": "integer"}}
-            },
-            "required": [
-                "total_units", "total_sq_ft", "total_beds", "total_bath",
-                "unit_sq_ft", "unit_bed", "unit_bath"
-            ]
-        }
+        # Use Pydantic's model_json_schema() for proper schema generation
+        json_schema = InitialPropertyInfoOutput.model_json_schema()
 
         request = PerplexityRequest(
             model='sonar',
