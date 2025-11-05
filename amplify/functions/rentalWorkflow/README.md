@@ -9,7 +9,9 @@ The Rental Workflow orchestrates multiple property data gathering functions in a
 ## Workflow Phases
 
 ### Phase 1: Property Identification
+
 1. **County Lookup** (Sequential)
+
    - Gets county name for the city/state
    - Required for property details lookup
 
@@ -18,7 +20,9 @@ The Rental Workflow orchestrates multiple property data gathering functions in a
    - **Neighborhood Lookup** (only if city is a metro area): Gets neighborhood name
 
 ### Phase 2: Market Research (only if property details succeeds)
+
 All executed in parallel:
+
 1. **Zillow ZIP Search**: Recent sold homes in the ZIP code via Apify
 2. **Interest Rate**: Current mortgage rates for the state
 3. **Property Tax**: Property tax information
@@ -36,6 +40,7 @@ All executed in parallel:
 ```
 
 ### Optional Configuration
+
 ```json
 {
   "street": "123 Main St",
@@ -109,19 +114,24 @@ All executed in parallel:
 ## Features
 
 ### Partial Success Support
+
 The workflow returns `success: true` if ANY steps complete successfully, even if some fail. This allows downstream processing to use whatever data was successfully gathered.
 
 ### Metro Area Detection
+
 The workflow automatically detects if a city is in the Ohio metro area dataset and:
+
 - Skips neighborhood lookup for non-metro cities
 - Executes neighborhood lookup in parallel with property details for metro cities
 
 ### Error Handling
+
 - Each step has independent error handling
 - Failed steps don't prevent other steps from executing
 - All errors are captured in the `errors` array with step name and error code
 
 ### Parallel Execution
+
 - Phase 1: Property details and neighborhood (if metro) run in parallel after county lookup
 - Phase 2: All market research functions run in parallel
 - Uses Python asyncio for efficient I/O-bound operations
@@ -139,16 +149,19 @@ The workflow automatically detects if a city is in the Ohio metro area dataset a
 ## Environment Variables
 
 Required:
+
 - `PERPLEXITY_PARAM_NAME`: SSM parameter name for Perplexity API key (e.g., `/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`)
 - `APIFY_PARAM_NAME`: SSM parameter name for Apify API key (e.g., `/amplify/shared/d1yieg8lf5bsxx/ApifyAPI`)
 
 The Lambda function uses the centralized `get_api_clients_from_env()` utility from `propertyDataGather.common` to:
+
 1. Read SSM parameter names from environment variables
 2. Retrieve and decrypt actual API keys from AWS Systems Manager Parameter Store at runtime
 3. Initialize and return ready-to-use PerplexityClient and ApifyClient instances
 
 This approach:
-- Avoids AWS Secrets Manager costs ($0.80/month per secret)
+
+- Avoids AWS Secrets Manager costs (\$0.80/month per secret)
 - Uses existing Amplify secrets stored as SSM SecureString parameters
 - Provides in-memory caching to reduce SSM API calls
 - Centralizes secrets management across all Python Lambda functions
@@ -158,11 +171,12 @@ This approach:
 - **Runtime**: Python 3.12
 - **Memory**: 512 MB
 - **Timeout**: 180 seconds (3 minutes)
-- **Architecture**: arm64
+- **Architecture**: x86_64 (default)
 
 ## Metro Area Cities
 
 The following Ohio cities are recognized as metro areas:
+
 - Columbus
 - Cleveland
 - Cincinnati
@@ -206,6 +220,7 @@ print(result['completedSteps'])
 ## Performance
 
 Typical execution times:
+
 - Full successful workflow: 40-60 seconds
 - Phase 1 only: 15-25 seconds
 - Individual step: 3-8 seconds
@@ -215,6 +230,7 @@ Total API calls: 7-12 depending on number of unique bed/bath combinations
 ## Development
 
 To test locally:
+
 ```bash
 # Install dependencies
 cd amplify/functions/rentalWorkflow
@@ -232,6 +248,7 @@ python -c "from index import handler; print(handler({'street': '123 Main St', 'c
 ```
 
 Note: Local testing requires:
+
 - Valid AWS credentials with SSM read permissions
 - Access to the SSM parameters in your AWS account
 - The `boto3` package installed
@@ -266,6 +283,7 @@ orchestrator.py
 ## Related Functions
 
 This workflow orchestrates the following functions from `/propertyDataGather`:
+
 - `get_county_name`
 - `get_neighborhood_name`
 - `get_initial_property_info`

@@ -25,18 +25,21 @@ export const rentalWorkflow = defineFunction(
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Following exact documentation pattern with path.join
-              execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${path.join(outputDir)} --platform manylinux2014_x86_64 --only-binary=:all:`,
-                { stdio: 'inherit' }
-              );
+              // Copy function files first (before installing dependencies)
+              // This prevents dependencies from being overwritten by source files
+              execSync(`cp ${path.join(functionDir, '*.py')} ${outputDir}/`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(functionDir, 'requirements.txt')} ${outputDir}/`, { stdio: 'inherit' });
 
-              // Copy all files from function directory (as per documentation)
-              execSync(`cp -r ${functionDir}/* ${path.join(outputDir)}`, { stdio: 'inherit' });
-
-              // Additionally copy the propertyDataGather module
+              // Copy the propertyDataGather module
               const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
               execSync(`cp -r ${propertyDataGatherDir} ${path.join(outputDir)}/propertyDataGather`, { stdio: 'inherit' });
+
+              // Install Python dependencies for Lambda x86_64 environment
+              // Using pip with specific platform flags for Python 3.12
+              execSync(
+                `python3 -m pip install -r ${path.join(outputDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all: --upgrade`,
+                { stdio: 'inherit' }
+              );
 
               return true;
             },
