@@ -20,15 +20,15 @@ export const rentalWorkflow = defineFunction(
       runtime: Runtime.PYTHON_3_12,
       timeout: Duration.seconds(300),
       memorySize: 512,
-      architecture: Architecture.ARM_64,
+      architecture: Architecture.X86_64,
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),
           local: {
             tryBundle(outputDir: string) {
-              // Simple pip install - let pip handle platform compatibility
+              // Install packages for x86_64 Lambda runtime
               execSync(
-                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir}`,
+                `python3 -m pip install -r ${path.join(functionDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_x86_64 --only-binary=:all:`,
                 { stdio: 'inherit' }
               );
 
