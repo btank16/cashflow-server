@@ -18,6 +18,41 @@ from ..config import STANDARD_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 
 
+def deduplicate_addresses(address_lists: List[List[str]]) -> List[str]:
+    """
+    Deduplicate addresses from multiple lists while preserving order.
+    
+    This utility function is useful when aggregating results from multiple
+    apartment searches or property queries and ensuring no duplicate addresses.
+    
+    Args:
+        address_lists: List of address lists to deduplicate
+        
+    Returns:
+        Deduplicated list of unique addresses (preserves original formatting)
+        
+    Example:
+        >>> lists = [
+        ...     ["123 Main St", "456 Oak Ave"],
+        ...     ["123 main st", "789 Pine Dr"]
+        ... ]
+        >>> deduplicate_addresses(lists)
+        ["123 Main St", "456 Oak Ave", "789 Pine Dr"]
+    """
+    seen = set()
+    unique_addresses = []
+    
+    for address_list in address_lists:
+        for address in address_list:
+            # Normalize address for comparison (lowercase, strip whitespace)
+            normalized = address.lower().strip()
+            if normalized not in seen:
+                seen.add(normalized)
+                unique_addresses.append(address)  # Keep original formatting
+    
+    return unique_addresses
+
+
 class ApartmentCompInput(BaseModel):
     """Input for apartment search."""
     city: str

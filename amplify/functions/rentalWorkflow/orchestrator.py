@@ -25,6 +25,7 @@ from propertyDataGather.functions import (
     search_zillow_by_zip,
     is_valid_city
 )
+from propertyDataGather.functions.apartment_search import deduplicate_addresses
 from propertyDataGather.common import PerplexityClient, FunctionResult
 
 # Import from local workflow_types module (renamed from types.py to avoid conflict with built-in types module)
@@ -408,9 +409,39 @@ class RentalWorkflowOrchestrator:
                 )
             )
 
+    async def _execute_single_apartment_comp(
+        self, 
+        bed: int, 
+        bath: int, 
+        neighborhood: Optional[str]
+    ) -> FunctionResult:
+        """
+        Execute a single apartment comp search.
+        
+        Args:
+            bed: Number of bedrooms
+            bath: Number of bathrooms
+            neighborhood: Neighborhood name (optional)
+            
+        Returns:
+            FunctionResult from the apartment search
+        """
+        return await asyncio.to_thread(
+            get_apartment_comps,
+            {
+                'neighborhood': neighborhood,
+                'city': self.state.input.city,
+                'state': self.state.input.state,
+                'bed_count': bed,
+                'bath_count': bath
+            },
+            self.client
+        )
+    
     async def _execute_apartment_comp(self, bed: int, bath: int) -> None:
         """
         Execute apartment comp search for a specific bed/bath combination.
+        Runs 3 parallel searches and deduplicates the results.
 
         Args:
             bed: Number of bedrooms
@@ -424,35 +455,75 @@ class RentalWorkflowOrchestrator:
             neighborhood_data = self.state.steps['neighborhood'].data
             neighborhood = neighborhood_data.get('neighborhood') if neighborhood_data else None
 
-            result = await asyncio.to_thread(
-                get_apartment_comps,
-                {
-                    'neighborhood': neighborhood,
-                    'city': self.state.input.city,
-                    'state': self.state.input.state,
-                    'bed_count': bed,
-                    'bath_count': bath
-                },
-                self.client
-            )
-
-            self.state.steps['apartmentComps'][key] = WorkflowStepResult(
-                step_name=f'apartmentComp_{key}',
-                success=result.success,
-                data=result.data if result.success else None,
-                error=result.error if not result.success else None,
-                error_code=result.error_code if not result.success else None,
-                metadata=WorkflowStepMetadata(
-                    api_calls=result.metadata.api_calls if result.metadata else None,
-                    execution_time=int((time.time() - step_start_time) * 1000),
-                    model=result.metadata.model if result.metadata else None,
-                    search_domains=result.metadata.search_domains if result.metadata else None
-                ) if result.metadata else WorkflowStepMetadata(
-                    execution_time=int((time.time() - step_start_time) * 1000)
+            # Execute 3 parallel searches for this apartment type
+            search_tasks = [
+                self._execute_single_apartment_comp(bed, bath, neighborhood)
+                for _ in range(3)
+            ]
+            
+            results = await asyncio.gather(*search_tasks, return_exceptions=True)
+            
+            # Collect all successful results
+            all_addresses = []
+            total_api_calls = 0
+            all_models = []
+            all_search_domains = []
+            successful_searches = 0
+            errors = []
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Apartment comp {key} search {i+1} exception: {result}", exc_info=True)
+                    errors.append(str(result))
+                elif result.success and result.data and 'addresses' in result.data:
+                    all_addresses.append(result.data['addresses'])
+                    successful_searches += 1
+                    
+                    # Aggregate metadata
+                    if result.metadata:
+                        if result.metadata.api_calls:
+                            total_api_calls += result.metadata.api_calls
+                        if result.metadata.model:
+                            all_models.append(result.metadata.model)
+                        if result.metadata.search_domains:
+                            all_search_domains.extend(result.metadata.search_domains)
+                else:
+                    logger.warning(f"Apartment comp {key} search {i+1} failed: {result.error if hasattr(result, 'error') else 'Unknown error'}")
+                    if hasattr(result, 'error'):
+                        errors.append(result.error)
+            
+            # Deduplicate addresses across all successful searches
+            if all_addresses:
+                unique_addresses = deduplicate_addresses(all_addresses)
+                
+                self.state.steps['apartmentComps'][key] = WorkflowStepResult(
+                    step_name=f'apartmentComp_{key}',
+                    success=True,
+                    data={'addresses': unique_addresses},
+                    metadata=WorkflowStepMetadata(
+                        api_calls=total_api_calls,
+                        execution_time=int((time.time() - step_start_time) * 1000),
+                        model=list(set(all_models))[0] if all_models else None,
+                        search_domains=list(set(all_search_domains)) if all_search_domains else None
+                    )
                 )
-            )
-
-            self._update_metadata(result)
+                
+                # Update workflow metadata with total API calls
+                self.state.metadata['total_api_calls'] += total_api_calls
+                
+                logger.info(f"Apartment comp {key}: {successful_searches}/3 searches succeeded, {len(unique_addresses)} unique addresses found")
+            else:
+                # All searches failed
+                error_message = f"All 3 apartment searches failed. Errors: {'; '.join(errors) if errors else 'Unknown errors'}"
+                self.state.steps['apartmentComps'][key] = WorkflowStepResult(
+                    step_name=f'apartmentComp_{key}',
+                    success=False,
+                    error=error_message,
+                    error_code='ALL_SEARCHES_FAILED',
+                    metadata=WorkflowStepMetadata(
+                        execution_time=int((time.time() - step_start_time) * 1000)
+                    )
+                )
 
         except Exception as error:
             logger.error(f"Apartment comp {key} error: {error}", exc_info=True)
