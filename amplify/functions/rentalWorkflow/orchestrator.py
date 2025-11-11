@@ -275,13 +275,13 @@ class RentalWorkflowOrchestrator:
             result = await asyncio.to_thread(
                 search_zillow_by_zip,
                 {
-                    'zipCodes': [self.state.input.zip],
-                    'daysOnZillow': self.state.config.zillow_days_back,
+                    'zip_codes': [self.state.input.zip],
+                    'days_on_zillow': self.state.config.zillow_days_back,
                     'sold': True,
-                    'forSaleByAgent': False,
-                    'forSaleByOwner': False,
-                    'forRent': False,
-                    'maxItems': self.state.config.max_zillow_results
+                    'for_sale_by_agent': False,
+                    'for_sale_by_owner': False,
+                    'for_rent': False,
+                    'max_items': self.state.config.max_zillow_results
                 },
                 self.apify_client
             )
