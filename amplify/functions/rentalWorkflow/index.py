@@ -19,6 +19,7 @@ from propertyDataGather.common.utils import (
     validate_input,
     create_error_response
 )
+from propertyDataGather.common.types import ErrorCode
 from propertyDataGather.common.aws_clients import get_api_clients_from_env
 from orchestrator import RentalWorkflowOrchestrator
 
@@ -54,8 +55,8 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             logger.error(f"Validation failed: {validation['missing_fields']}")
             return create_error_response(
                 f"Missing required address fields: {', '.join(validation['missing_fields'])}",
-                'VALIDATION_ERROR'
-            )
+                ErrorCode.VALIDATION_ERROR
+            ).model_dump(exclude_none=True)
 
         # Retrieve API clients from SSM Parameter Store via environment variables
         try:
@@ -64,14 +65,14 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             logger.error(f'Configuration error: {error}')
             return create_error_response(
                 str(error),
-                'CONFIG_ERROR'
-            )
+                ErrorCode.CONFIG_ERROR
+            ).model_dump(exclude_none=True)
         except Exception as error:
             logger.error(f'Failed to retrieve API clients: {error}')
             return create_error_response(
                 'Failed to initialize API clients',
-                'CONFIG_ERROR'
-            )
+                ErrorCode.CONFIG_ERROR
+            ).model_dump(exclude_none=True)
 
         # Initialize and execute the workflow orchestrator
         orchestrator = RentalWorkflowOrchestrator(perplexity_client, apify_client, input_data)
@@ -95,5 +96,5 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         # Return error using standard error response format
         return create_error_response(
             str(error),
-            'HANDLER_ERROR'
-        )
+            ErrorCode.INTERNAL_ERROR
+        ).model_dump(exclude_none=True)

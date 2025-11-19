@@ -18,6 +18,7 @@ class ErrorCode(str, Enum):
     TIMEOUT_ERROR = 'TIMEOUT_ERROR'
     RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR'
     ACTOR_ERROR = 'ACTOR_ERROR'
+    EXTERNAL_API_ERROR = 'EXTERNAL_API_ERROR'
 
 
 class FunctionMetadata(BaseModel):

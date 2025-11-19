@@ -128,9 +128,9 @@ def get_coordinates(
         # Rate limiting is handled automatically by GeoPy's RateLimiter
         location = geocode(
             full_address,
-            addressdetails=True,  # Include structured address in response
-            language='en',        # English results
-            countrycodes='us'     # Limit to US results for better accuracy
+            addressdetails=True,   # Include structured address in response
+            language='en',         # English results
+            country_codes='us'     # Limit to US results for better accuracy (correct parameter name)
         )
 
         if not location:
