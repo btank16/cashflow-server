@@ -28,9 +28,25 @@ export const testGeocoding = defineFunction(
               execSync(`cp ${path.join(functionDir, '*.py')} ${outputDir}/`, { stdio: 'inherit' });
               execSync(`cp ${path.join(functionDir, 'requirements.txt')} ${outputDir}/`, { stdio: 'inherit' });
 
-              // Copy the propertyDataGather module (contains geocoding.py and common utilities)
+              // Copy only the necessary parts of propertyDataGather module
               const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
-              execSync(`cp -r ${propertyDataGatherDir} ${path.join(outputDir)}/propertyDataGather`, { stdio: 'inherit' });
+
+              // Create the directory structure
+              execSync(`mkdir -p ${path.join(outputDir, 'propertyDataGather/common')}`, { stdio: 'inherit' });
+              execSync(`mkdir -p ${path.join(outputDir, 'propertyDataGather/functions')}`, { stdio: 'inherit' });
+
+              // Copy only the specific files needed (no __init__.py files to avoid unwanted imports)
+              // Copy common utilities (types and utils only, not the __init__.py)
+              execSync(`cp ${path.join(propertyDataGatherDir, 'common/types.py')} ${path.join(outputDir, 'propertyDataGather/common/')}`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(propertyDataGatherDir, 'common/utils.py')} ${path.join(outputDir, 'propertyDataGather/common/')}`, { stdio: 'inherit' });
+
+              // Copy the geocoding function
+              execSync(`cp ${path.join(propertyDataGatherDir, 'functions/geocoding.py')} ${path.join(outputDir, 'propertyDataGather/functions/')}`, { stdio: 'inherit' });
+
+              // Create minimal __init__.py files to make them proper Python packages
+              execSync(`echo "" > ${path.join(outputDir, 'propertyDataGather/__init__.py')}`, { stdio: 'inherit' });
+              execSync(`echo "" > ${path.join(outputDir, 'propertyDataGather/common/__init__.py')}`, { stdio: 'inherit' });
+              execSync(`echo "" > ${path.join(outputDir, 'propertyDataGather/functions/__init__.py')}`, { stdio: 'inherit' });
 
               // Install Python dependencies for Lambda x86_64 environment
               execSync(
