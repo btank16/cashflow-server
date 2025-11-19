@@ -7,9 +7,8 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 
-from ..common import (
-    FunctionResult,
-    ErrorCode,
+from ..common.types import FunctionResult, ErrorCode
+from ..common.utils import (
     validate_input,
     create_error_response,
     create_success_response,

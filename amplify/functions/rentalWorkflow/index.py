@@ -15,11 +15,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from propertyDataGather.common import (
+from propertyDataGather.common.utils import (
     validate_input,
-    create_error_response,
-    get_api_clients_from_env
+    create_error_response
 )
+from propertyDataGather.common.aws_clients import get_api_clients_from_env
 from orchestrator import RentalWorkflowOrchestrator
 
 # Configure logging

@@ -26,7 +26,8 @@ from propertyDataGather.functions import (
     is_valid_city
 )
 from propertyDataGather.functions.apartment_search import deduplicate_addresses
-from propertyDataGather.common import PerplexityClient, FunctionResult
+from propertyDataGather.common.perplexity_client import PerplexityClient
+from propertyDataGather.common.types import FunctionResult
 
 # Import from local workflow_types module (renamed from types.py to avoid conflict with built-in types module)
 from workflow_types import (

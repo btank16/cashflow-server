@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from propertyDataGather.functions.geocoding import get_coordinates
-from propertyDataGather.common import validate_input, create_error_response
+from propertyDataGather.common.utils import validate_input, create_error_response
 
 # Configure logging
 logger = logging.getLogger()
