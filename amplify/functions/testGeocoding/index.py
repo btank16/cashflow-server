@@ -71,8 +71,8 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
                    f'execution_time={execution_time_ms}ms')
 
         if result.success and result.data:
-            logger.info(f'Coordinates: lat={result.data.get("latitude")}, '
-                       f'lon={result.data.get("longitude")}')
+            logger.info(f'Coordinates: lat={result.data.get("lat")}, '
+                       f'lon={result.data.get("lon")}')
 
         # Add execution time to metadata
         if result.metadata:

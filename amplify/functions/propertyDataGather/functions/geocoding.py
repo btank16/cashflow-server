@@ -1,11 +1,9 @@
-"""Geocoding function using OpenStreetMap Nominatim via GeoPy."""
+"""Geocoding function using OpenStreetMap Nominatim via OSMPythonTools."""
 
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import logging
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
-from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
+from OSMPythonTools.nominatim import Nominatim
 
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import (
@@ -26,77 +24,72 @@ class GeocodingInput(BaseModel):
     zip: Optional[str] = None
 
 
-class GeocodingOutput(BaseModel):
-    """Output with coordinates and metadata."""
-    latitude: float
-    longitude: float
-    display_name: str
-    address_details: Optional[Dict[str, Any]] = None
+# Global Nominatim instance with rate limiting (singleton pattern)
+_nominatim = None
 
 
-# Global geocoder instance with rate limiting (singleton pattern)
-_geocoder = None
-_rate_limited_geocode = None
-
-
-def get_geocoder():
+def get_nominatim():
     """
-    Get or create the geocoder instance with rate limiting.
+    Get or create the Nominatim instance with rate limiting.
 
     Uses singleton pattern to ensure consistent rate limiting across all requests.
-    GeoPy's RateLimiter automatically enforces Nominatim's 1 request/second policy.
+    OSMPythonTools enforces rate limiting via the waitBetweenQueries parameter.
 
     Returns:
-        Rate-limited geocode function
+        Nominatim instance
     """
-    global _geocoder, _rate_limited_geocode
+    global _nominatim
 
-    if _geocoder is None:
-        # Initialize with custom user agent (REQUIRED by Nominatim usage policy)
-        _geocoder = Nominatim(
-            user_agent="CashflowTotal/1.0 (support@cashflow.deal)",
-            timeout=10
-        )
+    if _nominatim is None:
+        # Initialize with rate limiting (1 second between queries)
+        # OSMPythonTools handles User-Agent and other headers internally
+        _nominatim = Nominatim(waitBetweenQueries=1.0)
 
-        # Wrap with RateLimiter - automatically enforces 1 req/sec
-        _rate_limited_geocode = RateLimiter(
-            _geocoder.geocode,
-            min_delay_seconds=1.0,  # Enforces minimum 1 second between requests
-            max_retries=2,
-            error_wait_seconds=5.0
-        )
-
-    return _rate_limited_geocode
+    return _nominatim
 
 
 @measure_execution_time
 def get_coordinates(
     input_data: Dict[str, Any]
-) -> FunctionResult[GeocodingOutput]:
+) -> FunctionResult[Dict[str, Any]]:
     """
-    Convert address to latitude/longitude using OpenStreetMap Nominatim via GeoPy.
+    Convert address to coordinates using OpenStreetMap Nominatim via OSMPythonTools.
 
     This function complies with Nominatim's usage policy:
-    - Custom User-Agent header
-    - 1 request per second rate limiting (handled by GeoPy's RateLimiter)
+    - User-Agent header (handled by OSMPythonTools)
+    - 1 request per second rate limiting (waitBetweenQueries parameter)
     - Results should be cached by calling application
 
     Args:
         input_data: Dictionary containing street, city, state, and optional zip
 
     Returns:
-        FunctionResult containing GeocodingOutput with coordinates or error
+        FunctionResult containing raw Nominatim JSON response with all geocoding data
+
+    The raw JSON response includes:
+        - lat: Latitude as string
+        - lon: Longitude as string
+        - display_name: Full formatted address
+        - address: Dictionary with structured address components including:
+            - house_number, road, neighbourhood, suburb, city, county, state, postcode, country, country_code
+        - place_id: Nominatim place identifier
+        - osm_type: OSM element type (node, way, relation)
+        - osm_id: OSM element ID
+        - boundingbox: Geographic bounding box
 
     Example:
         >>> input_data = {
-        ...     "street": "1600 Amphitheatre Parkway",
-        ...     "city": "Mountain View",
-        ...     "state": "CA",
-        ...     "zip": "94043"
+        ...     "street": "2179 West 106th Street",
+        ...     "city": "Cleveland",
+        ...     "state": "OH",
+        ...     "zip": "44102"
         ... }
         >>> result = get_coordinates(input_data)
         >>> if result.success:
-        ...     print(f"Lat: {result.data['latitude']}, Lon: {result.data['longitude']}")
+        ...     lat = result.data['lat']
+        ...     lon = result.data['lon']
+        ...     county = result.data['address']['county']
+        ...     zip_code = result.data['address']['postcode']
     """
     # Validate input
     validation = validate_input(input_data, ['street', 'city', 'state'])
@@ -121,69 +114,56 @@ def get_coordinates(
 
         logger.info(f"Geocoding address: {full_address}")
 
-        # Get rate-limited geocoder
-        geocode = get_geocoder()
+        # Get Nominatim instance with rate limiting
+        nominatim = get_nominatim()
 
-        # Perform geocoding with address details
-        # Rate limiting is handled automatically by GeoPy's RateLimiter
-        location = geocode(
-            full_address,
-            addressdetails=True,   # Include structured address in response
-            language='en',         # English results
-            country_codes='us'     # Limit to US results for better accuracy (correct parameter name)
-        )
+        # Perform geocoding query
+        # Rate limiting is handled automatically by OSMPythonTools (1 req/sec)
+        result = nominatim.query(full_address)
 
-        if not location:
+        # Get raw JSON response
+        json_data = result.toJSON()
+
+        if not json_data or len(json_data) == 0:
             logger.warning(f"No results found for address: {full_address}")
             return create_error_response(
                 f"No results found for address: {full_address}",
                 ErrorCode.NOT_FOUND
             )
 
-        # Build output
-        output = GeocodingOutput(
-            latitude=location.latitude,
-            longitude=location.longitude,
-            display_name=location.address,
-            address_details=location.raw.get('address', {})
-        )
+        # Use first result
+        geocode_data = json_data[0]
 
         logger.info(
-            f"Successfully geocoded to: {location.latitude}, {location.longitude}"
+            f"Successfully geocoded to: {geocode_data.get('lat')}, {geocode_data.get('lon')}"
         )
 
+        # Return raw Nominatim JSON data
         return create_success_response(
-            output.model_dump(),
+            geocode_data,
             metadata={
                 'source': 'nominatim',
                 'query': full_address,
-                'place_id': location.raw.get('place_id'),
-                'osm_type': location.raw.get('osm_type'),
-                'osm_id': location.raw.get('osm_id')
+                'api_calls': 1,
+                'result_count': len(json_data)
             }
         )
 
-    except GeocoderTimedOut:
-        logger.error("Geocoding request timed out")
-        return create_error_response(
-            "Geocoding request timed out. Please try again.",
-            ErrorCode.TIMEOUT_ERROR
-        )
-    except GeocoderUnavailable as e:
-        logger.error(f"Geocoding service unavailable: {str(e)}")
-        return create_error_response(
-            f"Geocoding service unavailable: {str(e)}",
-            ErrorCode.EXTERNAL_API_ERROR
-        )
     except ValueError as e:
         logger.error(f"Invalid input data: {str(e)}")
         return create_error_response(
             f"Invalid input format: {str(e)}",
             ErrorCode.VALIDATION_ERROR
         )
+    except AttributeError as e:
+        logger.error(f"Error accessing geocoding result: {str(e)}")
+        return create_error_response(
+            f"Failed to parse geocoding response: {str(e)}",
+            ErrorCode.DATA_VALIDATION_ERROR
+        )
     except Exception as e:
-        logger.error(f"Unexpected geocoding error: {str(e)}")
+        logger.error(f"Unexpected geocoding error: {str(e)}", exc_info=True)
         return create_error_response(
             f"Failed to geocode address: {str(e)}",
-            ErrorCode.DATA_VALIDATION_ERROR
+            ErrorCode.EXTERNAL_API_ERROR
         )
