@@ -1,9 +1,10 @@
-"""Geocoding function using OpenStreetMap Nominatim via OSMPythonTools."""
+"""Geocoding function using OpenStreetMap Nominatim API via direct HTTP requests."""
 
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 import logging
-from OSMPythonTools.nominatim import Nominatim
+import requests
+import time
 
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import (
@@ -15,6 +16,12 @@ from ..common.utils import (
 
 logger = logging.getLogger(__name__)
 
+# Nominatim API configuration
+NOMINATIM_API_URL = "https://nominatim.openstreetmap.org/search"
+USER_AGENT = "CashflowTotal/1.0 (support@cashflow.deal)"
+REQUEST_TIMEOUT = 10  # seconds
+RATE_LIMIT_DELAY = 1.0  # seconds between requests (Nominatim usage policy)
+
 
 class GeocodingInput(BaseModel):
     """Input for geocoding an address."""
@@ -24,28 +31,28 @@ class GeocodingInput(BaseModel):
     zip: Optional[str] = None
 
 
-# Global Nominatim instance with rate limiting (singleton pattern)
-_nominatim = None
+# Track last request time for rate limiting
+_last_request_time = 0.0
 
 
-def get_nominatim():
+def _enforce_rate_limit():
     """
-    Get or create the Nominatim instance with rate limiting.
+    Enforce Nominatim's rate limit of 1 request per second.
 
-    Uses singleton pattern to ensure consistent rate limiting across all requests.
-    OSMPythonTools enforces rate limiting via the waitBetweenQueries parameter.
-
-    Returns:
-        Nominatim instance
+    Nominatim usage policy requires maximum 1 request per second.
+    This function ensures compliance by adding delays if needed.
     """
-    global _nominatim
+    global _last_request_time
 
-    if _nominatim is None:
-        # Initialize with rate limiting (1 second between queries)
-        # OSMPythonTools handles User-Agent and other headers internally
-        _nominatim = Nominatim(waitBetweenQueries=1.0)
+    current_time = time.time()
+    time_since_last_request = current_time - _last_request_time
 
-    return _nominatim
+    if time_since_last_request < RATE_LIMIT_DELAY:
+        sleep_time = RATE_LIMIT_DELAY - time_since_last_request
+        logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+        time.sleep(sleep_time)
+
+    _last_request_time = time.time()
 
 
 @measure_execution_time
@@ -53,11 +60,11 @@ def get_coordinates(
     input_data: Dict[str, Any]
 ) -> FunctionResult[Dict[str, Any]]:
     """
-    Convert address to coordinates using OpenStreetMap Nominatim via OSMPythonTools.
+    Convert address to coordinates using OpenStreetMap Nominatim API via direct HTTP requests.
 
     This function complies with Nominatim's usage policy:
-    - User-Agent header (handled by OSMPythonTools)
-    - 1 request per second rate limiting (waitBetweenQueries parameter)
+    - Custom User-Agent header (required)
+    - 1 request per second rate limiting (enforced)
     - Results should be cached by calling application
 
     Args:
@@ -114,15 +121,37 @@ def get_coordinates(
 
         logger.info(f"Geocoding address: {full_address}")
 
-        # Get Nominatim instance with rate limiting
-        nominatim = get_nominatim()
+        # Enforce rate limiting (1 req/sec as per Nominatim usage policy)
+        _enforce_rate_limit()
 
-        # Perform geocoding query
-        # Rate limiting is handled automatically by OSMPythonTools (1 req/sec)
-        result = nominatim.query(full_address)
+        # Prepare request parameters
+        params = {
+            'q': full_address,
+            'format': 'json',
+            'addressdetails': 1,  # Include structured address details
+            'limit': 1,  # Only return top result
+            'countrycodes': 'us'  # Limit to US results for better accuracy
+        }
 
-        # Get raw JSON response
-        json_data = result.toJSON()
+        # Prepare headers (User-Agent is REQUIRED by Nominatim)
+        headers = {
+            'User-Agent': USER_AGENT
+        }
+
+        # Make HTTP request to Nominatim API
+        logger.debug(f"Calling Nominatim API: {NOMINATIM_API_URL}")
+        response = requests.get(
+            NOMINATIM_API_URL,
+            params=params,
+            headers=headers,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        # Check HTTP status
+        response.raise_for_status()
+
+        # Parse JSON response
+        json_data = response.json()
 
         if not json_data or len(json_data) == 0:
             logger.warning(f"No results found for address: {full_address}")
@@ -149,16 +178,34 @@ def get_coordinates(
             }
         )
 
+    except requests.exceptions.Timeout:
+        logger.error("Nominatim API request timed out")
+        return create_error_response(
+            f"Geocoding request timed out after {REQUEST_TIMEOUT} seconds",
+            ErrorCode.TIMEOUT_ERROR
+        )
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Nominatim API HTTP error: {e}")
+        return create_error_response(
+            f"Nominatim API error: {e}",
+            ErrorCode.EXTERNAL_API_ERROR
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error calling Nominatim API: {e}")
+        return create_error_response(
+            f"Network error: {e}",
+            ErrorCode.EXTERNAL_API_ERROR
+        )
     except ValueError as e:
         logger.error(f"Invalid input data: {str(e)}")
         return create_error_response(
             f"Invalid input format: {str(e)}",
             ErrorCode.VALIDATION_ERROR
         )
-    except AttributeError as e:
-        logger.error(f"Error accessing geocoding result: {str(e)}")
+    except KeyError as e:
+        logger.error(f"Missing expected field in Nominatim response: {e}")
         return create_error_response(
-            f"Failed to parse geocoding response: {str(e)}",
+            f"Invalid response from Nominatim API: missing field {e}",
             ErrorCode.DATA_VALIDATION_ERROR
         )
     except Exception as e:
