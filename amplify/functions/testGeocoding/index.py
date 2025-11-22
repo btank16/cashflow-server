@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from propertyDataGather.functions.geocoding import get_coordinates
+from propertyDataGather.functions.geocoding import get_coordinates, get_zip_bounding_box
 from propertyDataGather.common.utils import validate_input, create_error_response
 from propertyDataGather.common.types import ErrorCode
 
@@ -24,23 +24,25 @@ logger.setLevel(logging.INFO)
 
 def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     """
-    Lambda handler function to test geocoding.
+    Lambda handler function to test both geocoding and zip bounding box functions.
+
+    Calls both get_coordinates() and get_zip_bounding_box() for a single address query,
+    returning results from both functions.
 
     Args:
         event: The input event containing address information
-               Required: street, city, state
-               Optional: zip
+               Required: street, city, state, zip
         _context: Lambda context object (unused)
 
     Returns:
-        The geocoding result with coordinates or error response
+        Combined results from both geocoding and zip bounding box functions
 
     Example event:
         {
-            "street": "1600 Amphitheatre Parkway",
-            "city": "Mountain View",
-            "state": "CA",
-            "zip": "94043"
+            "street": "2179 West 106th Street",
+            "city": "Cleveland",
+            "state": "OH",
+            "zip": "44102"
         }
     """
     logger.info(f'Test Geocoding Lambda started: {json.dumps(event)}')
@@ -54,7 +56,7 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             input_data = event
 
         # Validate required address fields
-        validation = validate_input(input_data, ['street', 'city', 'state'])
+        validation = validate_input(input_data, ['street', 'city', 'state', 'zip'])
         if not validation['is_valid']:
             logger.error(f"Validation failed: {validation['missing_fields']}")
             return create_error_response(
@@ -62,24 +64,40 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
                 ErrorCode.VALIDATION_ERROR
             ).model_dump(exclude_none=True)
 
-        # Call the geocoding function
-        result = get_coordinates(input_data)
+        # Call both functions
+        logger.info('Calling get_coordinates for full address')
+        geocode_result = get_coordinates(input_data)
+
+        logger.info('Calling get_zip_bounding_box for zip code')
+        bbox_result = get_zip_bounding_box({'zip': input_data['zip'], 'country': 'us'})
 
         # Log execution summary
         execution_time_ms = int((time.time() - start_time) * 1000)
-        logger.info(f'Geocoding completed: success={result.success}, '
-                   f'execution_time={execution_time_ms}ms')
+        logger.info(f'Both functions completed in {execution_time_ms}ms')
 
-        if result.success and result.data:
-            logger.info(f'Coordinates: lat={result.data.get("lat")}, '
-                       f'lon={result.data.get("lon")}')
+        if geocode_result.success and geocode_result.data:
+            logger.info(f'Address coordinates: lat={geocode_result.data.get("lat")}, '
+                       f'lon={geocode_result.data.get("lon")}')
 
-        # Add execution time to metadata
-        if result.metadata:
-            result.metadata.execution_time = execution_time_ms / 1000.0
+        if bbox_result.success and bbox_result.data:
+            logger.info(f'Zip bounding box: {bbox_result.data.get("boundingbox")}')
 
-        # Return FunctionResult as dictionary
-        return result.model_dump(exclude_none=True)
+        # Build combined response
+        response = {
+            'success': geocode_result.success or bbox_result.success,
+            'geocoding': geocode_result.model_dump(exclude_none=True),
+            'zip_bounding_box': bbox_result.model_dump(exclude_none=True),
+            'metadata': {
+                'total_execution_time': execution_time_ms / 1000.0,
+                'total_api_calls': (
+                    (geocode_result.metadata.api_calls if geocode_result.metadata else 0) +
+                    (bbox_result.metadata.api_calls if bbox_result.metadata else 0)
+                )
+            }
+        }
+
+        # Return combined results
+        return response
 
     except Exception as error:
         logger.error(f'Handler error: {error}', exc_info=True)
