@@ -17,8 +17,8 @@ export const testGeocoding = defineFunction(
     const lambdaFunction = new Function(scope, 'testGeocoding', {
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
-      timeout: Duration.seconds(30),
-      memorySize: 256,
+      timeout: Duration.seconds(300),
+      memorySize: 512,
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),
