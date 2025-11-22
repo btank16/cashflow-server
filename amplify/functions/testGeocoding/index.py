@@ -9,6 +9,7 @@ import time
 from typing import Dict, Any
 
 # Lambda automatically sets /var/task/ in sys.path
+# propertyDataGather is available via symbolic link in this directory
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))

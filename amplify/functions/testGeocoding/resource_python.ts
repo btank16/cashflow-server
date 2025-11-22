@@ -36,12 +36,16 @@ export const testGeocoding = defineFunction(
               execSync(`mkdir -p ${path.join(outputDir, 'propertyDataGather/functions')}`, { stdio: 'inherit' });
 
               // Copy only the specific files needed (no __init__.py files to avoid unwanted imports)
-              // Copy common utilities (types and utils only, not the __init__.py)
+              // Copy common utilities
               execSync(`cp ${path.join(propertyDataGatherDir, 'common/types.py')} ${path.join(outputDir, 'propertyDataGather/common/')}`, { stdio: 'inherit' });
               execSync(`cp ${path.join(propertyDataGatherDir, 'common/utils.py')} ${path.join(outputDir, 'propertyDataGather/common/')}`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(propertyDataGatherDir, 'common/osm_config.py')} ${path.join(outputDir, 'propertyDataGather/common/')}`, { stdio: 'inherit' });
 
-              // Copy the geocoding function
+              // Copy the functions
               execSync(`cp ${path.join(propertyDataGatherDir, 'functions/geocoding.py')} ${path.join(outputDir, 'propertyDataGather/functions/')}`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(propertyDataGatherDir, 'functions/osm_fetcher.py')} ${path.join(outputDir, 'propertyDataGather/functions/')}`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(propertyDataGatherDir, 'functions/boundary_builder.py')} ${path.join(outputDir, 'propertyDataGather/functions/')}`, { stdio: 'inherit' });
+              execSync(`cp ${path.join(propertyDataGatherDir, 'functions/address_checker.py')} ${path.join(outputDir, 'propertyDataGather/functions/')}`, { stdio: 'inherit' });
 
               // Create minimal __init__.py files to make them proper Python packages
               execSync(`echo "" > ${path.join(outputDir, 'propertyDataGather/__init__.py')}`, { stdio: 'inherit' });
