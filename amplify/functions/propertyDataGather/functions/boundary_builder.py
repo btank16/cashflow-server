@@ -89,60 +89,108 @@ class BoundaryBuilder:
 
     def _find_all_intersections(self) -> None:
         """
-        Find all intersection points using spatial indexing (STRtree).
+        Find all intersection points between ways and bbox edges.
 
-        This optimized version uses STRtree spatial index instead of O(n²) brute-force
-        checking, reducing complexity to O(n log n) for large numbers of ways.
+        Uses STRtree spatial indexing for O(n log n) performance when available,
+        with fallback to O(n²) brute-force if needed.
         """
         all_lines = [ls for ls, _ in self.linestrings] + self.bbox_edges
 
-        logger.info(f"Building spatial index for {len(all_lines)} lines")
+        if not all_lines:
+            logger.warning("No lines to find intersections for")
+            return
 
-        # Build spatial index for efficient intersection queries
-        # STRtree creates an R-tree spatial index for fast bounding box queries
+        # Try optimized STRtree approach first
+        try:
+            self._find_intersections_strtree(all_lines)
+            if len(self.intersections) > 0:
+                return
+            logger.warning("STRtree found no intersections, falling back to brute force")
+        except Exception as e:
+            logger.warning(f"STRtree approach failed: {e}, falling back to brute force")
+
+        # Fallback to original O(n²) brute-force algorithm
+        self._find_intersections_brute_force(all_lines)
+
+    def _find_intersections_strtree(self, all_lines: List[LineString]) -> None:
+        """Find intersections using STRtree spatial index (optimized)."""
+        logger.info(f"Using STRtree spatial index for {len(all_lines)} lines")
+
+        # Build spatial index
         tree = STRtree(all_lines)
-
-        # Track which pairs we've already checked to avoid duplicates
         checked_pairs = set()
 
-        # For each line, query spatial index for potential intersections
+        # For each line, query spatial index
         for i, line1 in enumerate(all_lines):
-            # Query returns lines whose bboxes intersect with line1's bbox
-            potential_intersections = tree.query(line1)
+            # Query returns indices of potentially intersecting lines
+            potential_indices = tree.query(line1)
 
-            for line2 in potential_intersections:
-                # Create unique pair identifier to avoid checking same pair twice
-                line1_id = id(line1)
-                line2_id = id(line2)
-                pair_key = tuple(sorted([line1_id, line2_id]))
+            # Convert to list (handles numpy array or other return types)
+            try:
+                indices_to_check = list(potential_indices)
+            except (TypeError, ValueError):
+                indices_to_check = []
 
-                # Skip self-intersection and already-checked pairs
-                if line1_id == line2_id or pair_key in checked_pairs:
+            for j in indices_to_check:
+                # Skip self and already-checked pairs
+                if i == j:
+                    continue
+
+                pair_key = tuple(sorted([i, j]))
+                if pair_key in checked_pairs:
                     continue
 
                 checked_pairs.add(pair_key)
 
-                # Check actual geometric intersection
+                # Get actual line and check intersection
+                line2 = all_lines[j]
                 if line1.intersects(line2):
                     intersection = line1.intersection(line2)
+                    self._add_intersection_points(intersection)
 
-                    # Handle different intersection types
-                    if isinstance(intersection, Point):
-                        self.intersections.add((intersection.x, intersection.y))
-                    elif isinstance(intersection, MultiPoint):
-                        for point in intersection.geoms:
-                            self.intersections.add((point.x, point.y))
-                    # LineString intersections mean overlapping ways - add endpoints
-                    elif isinstance(intersection, LineString):
-                        coords = list(intersection.coords)
-                        self.intersections.add(coords[0])
-                        self.intersections.add(coords[-1])
+        # Add endpoints and corners
+        self._add_endpoints_and_corners()
 
-        # Also add all endpoints of ways as potential intersections
+        logger.info(f"STRtree found {len(self.intersections)} intersection points")
+
+    def _find_intersections_brute_force(self, all_lines: List[LineString]) -> None:
+        """Find intersections using O(n²) brute force (fallback)."""
+        logger.info(f"Using brute-force intersection detection for {len(all_lines)} lines")
+
+        # Check all pairs of lines
+        for i, line1 in enumerate(all_lines):
+            for line2 in all_lines[i + 1:]:
+                if line1.intersects(line2):
+                    intersection = line1.intersection(line2)
+                    self._add_intersection_points(intersection)
+
+        # Add endpoints and corners
+        self._add_endpoints_and_corners()
+
+        logger.info(f"Brute force found {len(self.intersections)} intersection points")
+
+    def _add_intersection_points(self, intersection) -> None:
+        """Add intersection points to the set based on intersection type."""
+        if isinstance(intersection, Point):
+            self.intersections.add((intersection.x, intersection.y))
+        elif isinstance(intersection, MultiPoint):
+            for point in intersection.geoms:
+                self.intersections.add((point.x, point.y))
+        elif isinstance(intersection, LineString):
+            # Overlapping lines - add endpoints
+            coords = list(intersection.coords)
+            if coords:
+                self.intersections.add(coords[0])
+                self.intersections.add(coords[-1])
+
+    def _add_endpoints_and_corners(self) -> None:
+        """Add way endpoints and bounding box corners as intersection points."""
+        # Add all endpoints of ways
         for line, _ in self.linestrings:
             coords = list(line.coords)
-            self.intersections.add(coords[0])
-            self.intersections.add(coords[-1])
+            if coords:
+                self.intersections.add(coords[0])
+                self.intersections.add(coords[-1])
 
         # Add bbox corners
         min_lat, max_lat, min_lon, max_lon = self.bbox
@@ -150,8 +198,6 @@ class BoundaryBuilder:
         self.intersections.add((min_lon, max_lat))
         self.intersections.add((max_lon, min_lat))
         self.intersections.add((max_lon, max_lat))
-
-        logger.info(f"Found {len(self.intersections)} intersection points using spatial index")
 
     def _build_graph(self) -> None:
         """Build planar graph with intersections as nodes and way segments as edges."""
