@@ -14,12 +14,13 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from propertyDataGather.functions.geocoding import get_coordinates, get_zip_bounding_box
+from propertyDataGather.functions.geocoding import get_coordinates, get_zip_bounding_box, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
 from propertyDataGather.functions.boundary_builder import build_boundary_polygon
 from propertyDataGather.functions.address_checker import check_addresses_against_polygon
 from propertyDataGather.common.utils import validate_input, create_error_response
 from propertyDataGather.common.types import ErrorCode
+from propertyDataGather.common.osm_config import calculate_radius_bbox, check_bbox_intersection
 
 # Configure logging
 logger = logging.getLogger()
@@ -138,8 +139,10 @@ def handle_regular_geocoding(input_data: Dict[str, Any], start_time: float) -> D
 
 def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> Dict[str, Any]:
     """
-    Handle OSM boundary testing mode - builds polygon from OSM ways and tests
-    multiple addresses against it.
+    Handle OSM boundary testing mode with 2-mile radius and optimizations.
+
+    Uses 2-mile radius around target address instead of full zip code bbox,
+    parallel geocoding, and spatial indexing for improved performance.
     """
     # Validate required fields for OSM boundary test
     validation = validate_input(input_data, ['target_address', 'test_addresses'])
@@ -152,8 +155,9 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
 
     target_address = input_data['target_address']
     test_addresses = input_data['test_addresses']
+    radius_miles = input_data.get('radius_miles', 2.0)  # Allow override, default 2 miles
 
-    logger.info(f'OSM Boundary Test: target_address={target_address}, test_count={len(test_addresses)}')
+    logger.info(f'OSM Boundary Test: target={target_address}, test_count={len(test_addresses)}, radius={radius_miles} miles')
 
     # Step 1: Geocode target address
     logger.info('Step 1: Geocoding target address')
@@ -170,19 +174,42 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
     target_lon = float(target_geo_result.data['lon'])
     logger.info(f'Target coordinates: ({target_lon}, {target_lat})')
 
-    # Step 2: Geocode test addresses
-    logger.info(f'Step 2: Geocoding {len(test_addresses)} test addresses')
-    test_geo_results = []
+    # Step 2: Calculate 2-mile radius bbox around target
+    logger.info(f'Step 2: Calculating {radius_miles}-mile radius bounding box')
+    radius_bbox = calculate_radius_bbox(target_lat, target_lon, radius_miles)
+    logger.info(f'Radius bbox: {radius_bbox}')
+
+    # Step 3: Get zip code bbox for comparison
+    logger.info('Step 3: Getting zip code bounding box for comparison')
+    zip_bbox_result = get_zip_bounding_box({
+        'zip': target_address['zip'],
+        'country': 'us'
+    })
+
+    if not zip_bbox_result.success:
+        return {
+            'success': False,
+            'error': 'Failed to get bounding box for zip code',
+            'bbox_result': zip_bbox_result.model_dump(exclude_none=True)
+        }
+
+    zip_bbox = [float(x) for x in zip_bbox_result.data['boundingbox']]
+    logger.info(f'Zip code bbox: {zip_bbox}')
+
+    # Step 4: Check if radius crosses zip boundary
+    bbox_comparison = check_bbox_intersection(radius_bbox, zip_bbox)
+    logger.info(f'Bbox comparison: intersects={bbox_comparison["intersects"]}, crosses_zip={bbox_comparison["radius_crosses_zip"]}')
+
+    # Step 5: Parallel geocode test addresses
+    logger.info(f'Step 5: Batch geocoding {len(test_addresses)} test addresses in parallel')
+    test_geo_results = batch_geocode_addresses(test_addresses)
+
     geocoded_test_addresses = []
-
-    for i, addr in enumerate(test_addresses):
-        result = get_coordinates(addr)
-        test_geo_results.append(result)
-
+    for i, result in enumerate(test_geo_results):
         if result.success:
             geocoded_test_addresses.append({
                 'index': i,
-                'original': addr,
+                'original': test_addresses[i],
                 'lat': float(result.data['lat']),
                 'lon': float(result.data['lon']),
                 'display_name': result.data.get('display_name', '')
@@ -192,26 +219,9 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
 
     logger.info(f'Successfully geocoded {len(geocoded_test_addresses)}/{len(test_addresses)} test addresses')
 
-    # Step 3: Get bounding box for zip code
-    logger.info('Step 3: Getting bounding box for zip code')
-    bbox_result = get_zip_bounding_box({
-        'zip': target_address['zip'],
-        'country': 'us'
-    })
-
-    if not bbox_result.success:
-        return {
-            'success': False,
-            'error': 'Failed to get bounding box for zip code',
-            'bbox_result': bbox_result.model_dump(exclude_none=True)
-        }
-
-    bbox = [float(x) for x in bbox_result.data['boundingbox']]
-    logger.info(f'Bounding box: {bbox}')
-
-    # Step 4: Fetch OSM ways
-    logger.info('Step 4: Fetching OSM ways from Overpass API')
-    osm_result = fetch_osm_ways({'bbox': bbox})
+    # Step 6: Fetch OSM ways using RADIUS bbox (not zip bbox)
+    logger.info('Step 6: Fetching OSM ways from Overpass API using radius bbox')
+    osm_result = fetch_osm_ways({'bbox': radius_bbox})
 
     if not osm_result.success:
         return {
@@ -222,11 +232,11 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
 
     logger.info(f'Fetched {osm_result.data["stats"]["total"]} OSM ways')
 
-    # Step 5: Build polygon boundary
-    logger.info('Step 5: Building polygon boundary')
+    # Step 7: Build polygon boundary (now with spatial indexing)
+    logger.info('Step 7: Building polygon boundary with spatial indexing')
     polygon_result = build_boundary_polygon(
         osm_result.data['ways'],
-        bbox,
+        radius_bbox,
         (target_lon, target_lat)
     )
 
@@ -240,8 +250,8 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
     selected_polygon = polygon_result.data['polygon']
     logger.info(f'Selected polygon from {polygon_result.data["total_polygons_found"]} candidates')
 
-    # Step 6: Test addresses against polygon
-    logger.info('Step 6: Testing addresses against polygon')
+    # Step 8: Test addresses against polygon
+    logger.info('Step 8: Testing addresses against polygon')
     check_result = check_addresses_against_polygon({
         'polygon': selected_polygon,
         'addresses': geocoded_test_addresses
@@ -270,6 +280,14 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
             },
             'geocoding_result': target_geo_result.model_dump(exclude_none=True)
         },
+        'bounding_boxes': {
+            'radius_miles': radius_miles,
+            'radius_bbox': radius_bbox,
+            'zip_bbox': zip_bbox,
+            'radius_crosses_zip_boundary': bbox_comparison['radius_crosses_zip'],
+            'bboxes_intersect': bbox_comparison['intersects'],
+            'overlap_area_sq_degrees': bbox_comparison['overlap_area_sq_degrees']
+        },
         'selected_polygon': selected_polygon,
         'polygon_stats': {
             'total_polygons_found': polygon_result.data['total_polygons_found'],
@@ -284,13 +302,13 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
         },
         'osm_data': {
             'ways_fetched': osm_result.data['stats'],
-            'bbox_used': bbox
+            'bbox_used': radius_bbox
         },
         'metadata': {
             'total_execution_time': execution_time_ms / 1000.0,
             'total_api_calls': (
-                1 + len(test_addresses) +  # Geocoding calls
-                1 +  # Bbox call
+                1 + len(test_addresses) +  # Geocoding calls (parallel)
+                1 +  # Zip bbox call
                 1    # OSM fetch call
             ),
             'test_addresses_count': len(test_addresses),

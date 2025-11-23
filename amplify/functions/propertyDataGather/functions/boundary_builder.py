@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Tuple, Optional, Set
 from shapely.geometry import LineString, Point, Polygon, MultiPoint, box
 from shapely.ops import unary_union, polygonize
+from shapely.strtree import STRtree
 import networkx as nx
 import logging
 
@@ -87,11 +88,41 @@ class BoundaryBuilder:
         logger.info("Created bounding box edges")
 
     def _find_all_intersections(self) -> None:
-        """Find all intersection points between ways and bbox edges."""
+        """
+        Find all intersection points using spatial indexing (STRtree).
+
+        This optimized version uses STRtree spatial index instead of O(n²) brute-force
+        checking, reducing complexity to O(n log n) for large numbers of ways.
+        """
         all_lines = [ls for ls, _ in self.linestrings] + self.bbox_edges
 
+        logger.info(f"Building spatial index for {len(all_lines)} lines")
+
+        # Build spatial index for efficient intersection queries
+        # STRtree creates an R-tree spatial index for fast bounding box queries
+        tree = STRtree(all_lines)
+
+        # Track which pairs we've already checked to avoid duplicates
+        checked_pairs = set()
+
+        # For each line, query spatial index for potential intersections
         for i, line1 in enumerate(all_lines):
-            for line2 in all_lines[i + 1:]:
+            # Query returns lines whose bboxes intersect with line1's bbox
+            potential_intersections = tree.query(line1)
+
+            for line2 in potential_intersections:
+                # Create unique pair identifier to avoid checking same pair twice
+                line1_id = id(line1)
+                line2_id = id(line2)
+                pair_key = tuple(sorted([line1_id, line2_id]))
+
+                # Skip self-intersection and already-checked pairs
+                if line1_id == line2_id or pair_key in checked_pairs:
+                    continue
+
+                checked_pairs.add(pair_key)
+
+                # Check actual geometric intersection
                 if line1.intersects(line2):
                     intersection = line1.intersection(line2)
 
@@ -120,7 +151,7 @@ class BoundaryBuilder:
         self.intersections.add((max_lon, min_lat))
         self.intersections.add((max_lon, max_lat))
 
-        logger.info(f"Found {len(self.intersections)} intersection points")
+        logger.info(f"Found {len(self.intersections)} intersection points using spatial index")
 
     def _build_graph(self) -> None:
         """Build planar graph with intersections as nodes and way segments as edges."""

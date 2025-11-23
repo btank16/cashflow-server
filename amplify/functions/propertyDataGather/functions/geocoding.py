@@ -1,10 +1,12 @@
 """Geocoding function using OpenStreetMap Nominatim API via direct HTTP requests."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel
 import logging
 import requests
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import (
@@ -40,6 +42,9 @@ class ZipBoundingBoxInput(BaseModel):
 # Track last request time for rate limiting
 _last_request_time = 0.0
 
+# Global lock for thread-safe rate limiting
+_geocoding_lock = Lock()
+
 
 def _enforce_rate_limit():
     """
@@ -47,16 +52,18 @@ def _enforce_rate_limit():
 
     Nominatim usage policy requires maximum 1 request per second.
     This function ensures compliance by adding delays if needed.
+    Thread-safe via global lock.
     """
     global _last_request_time
 
-    current_time = time.time()
-    time_since_last_request = current_time - _last_request_time
+    with _geocoding_lock:
+        current_time = time.time()
+        time_since_last_request = current_time - _last_request_time
 
-    if time_since_last_request < RATE_LIMIT_DELAY:
-        sleep_time = RATE_LIMIT_DELAY - time_since_last_request
-        logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
-        time.sleep(sleep_time)
+        if time_since_last_request < RATE_LIMIT_DELAY:
+            sleep_time = RATE_LIMIT_DELAY - time_since_last_request
+            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
 
     _last_request_time = time.time()
 
@@ -375,3 +382,83 @@ def get_zip_bounding_box(
             f"Failed to get bounding box for zip code: {str(e)}",
             ErrorCode.EXTERNAL_API_ERROR
         )
+
+
+def batch_geocode_addresses(
+    addresses: List[Dict[str, Any]]
+) -> List[FunctionResult[Dict[str, Any]]]:
+    """
+    Geocode multiple addresses in parallel while respecting rate limits.
+
+    Uses ThreadPoolExecutor to parallelize API calls while maintaining
+    Nominatim's 1-second rate limit via thread-safe global lock.
+
+    Args:
+        addresses: List of address dictionaries, each with street, city, state, zip
+
+    Returns:
+        List of FunctionResult objects in same order as input addresses
+
+    Example:
+        >>> addresses = [
+        ...     {"street": "2092 W 101st St", "city": "Cleveland", "state": "OH", "zip": "44102"},
+        ...     {"street": "2142 W 105th St", "city": "Cleveland", "state": "OH", "zip": "44102"}
+        ... ]
+        >>> results = batch_geocode_addresses(addresses)
+        >>> for i, result in enumerate(results):
+        ...     if result.success:
+        ...         print(f"Address {i}: {result.data['lat']}, {result.data['lon']}")
+
+    Note:
+        - Uses max_workers=3 to allow parallelism while managing rate limits
+        - The global _geocoding_lock ensures 1-second spacing between requests
+        - Results are returned in the same order as input addresses
+    """
+    def geocode_with_index(index: int, address: Dict[str, Any]) -> Tuple[int, FunctionResult]:
+        """Geocode single address and return with its index to maintain order."""
+        try:
+            result = get_coordinates(address)
+            return (index, result)
+        except Exception as e:
+            logger.error(f"Exception geocoding address {index}: {e}", exc_info=True)
+            error_result = create_error_response(
+                f"Failed to geocode address: {str(e)}",
+                ErrorCode.INTERNAL_ERROR
+            )
+            return (index, error_result)
+
+    if not addresses:
+        logger.warning("batch_geocode_addresses called with empty address list")
+        return []
+
+    logger.info(f"Batch geocoding {len(addresses)} addresses in parallel")
+
+    # Initialize results list with None placeholders
+    results: List[Optional[FunctionResult]] = [None] * len(addresses)
+
+    # Use ThreadPoolExecutor for parallel requests
+    # max_workers=3 allows some parallelism while respecting rate limits
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit all geocoding tasks
+        futures = {
+            executor.submit(geocode_with_index, i, addr): i
+            for i, addr in enumerate(addresses)
+        }
+
+        # Collect results as they complete
+        for future in as_completed(futures):
+            try:
+                index, result = future.result()
+                results[index] = result
+            except Exception as e:
+                # This should rarely happen due to try/except in geocode_with_index
+                logger.error(f"Unexpected error in batch geocoding future: {e}", exc_info=True)
+                original_index = futures[future]
+                results[original_index] = create_error_response(
+                    f"Unexpected error: {str(e)}",
+                    ErrorCode.INTERNAL_ERROR
+                )
+
+    logger.info(f"Batch geocoding completed for {len(addresses)} addresses")
+
+    return results
