@@ -100,6 +100,18 @@ class BoundaryBuilder:
             logger.warning("No lines to find intersections for")
             return
 
+        # Validate all_lines contains only LineString objects
+        logger.debug(f"Validating {len(all_lines)} lines ({len(self.linestrings)} from ways, {len(self.bbox_edges)} from bbox)")
+        for idx, line in enumerate(all_lines):
+            if not isinstance(line, LineString):
+                logger.error(f"all_lines[{idx}] is not a LineString: {type(line)}")
+                if idx < len(self.linestrings):
+                    logger.error(f"  Source: linestrings[{idx}] = {self.linestrings[idx]}")
+                else:
+                    bbox_idx = idx - len(self.linestrings)
+                    logger.error(f"  Source: bbox_edges[{bbox_idx}] = {self.bbox_edges[bbox_idx]}")
+                raise TypeError(f"Expected all elements to be LineString, found {type(line)} at index {idx}")
+
         # Try optimized STRtree approach first
         try:
             self._find_intersections_strtree(all_lines)
@@ -115,6 +127,12 @@ class BoundaryBuilder:
     def _find_intersections_strtree(self, all_lines: List[LineString]) -> None:
         """Find intersections using STRtree spatial index (optimized)."""
         logger.info(f"Using STRtree spatial index for {len(all_lines)} lines")
+
+        # Validate all lines are actually LineString objects
+        for idx, line in enumerate(all_lines):
+            if not isinstance(line, LineString):
+                logger.error(f"Invalid geometry at index {idx}: {type(line)}")
+                raise TypeError(f"Expected LineString, got {type(line)} at index {idx}")
 
         # Build spatial index
         tree = STRtree(all_lines)
@@ -192,9 +210,19 @@ class BoundaryBuilder:
         """Find intersections using O(n²) brute force (fallback)."""
         logger.info(f"Using brute-force intersection detection for {len(all_lines)} lines")
 
+        # Validate all lines are actually LineString objects
+        for idx, line in enumerate(all_lines):
+            if not isinstance(line, LineString):
+                logger.error(f"Invalid geometry at index {idx}: {type(line)}")
+                raise TypeError(f"Expected LineString, got {type(line)} at index {idx}")
+
         # Check all pairs of lines
         for i, line1 in enumerate(all_lines):
             for line2 in all_lines[i + 1:]:
+                if not isinstance(line1, LineString) or not isinstance(line2, LineString):
+                    logger.warning(f"Skipping non-LineString objects: {type(line1)}, {type(line2)}")
+                    continue
+
                 if line1.intersects(line2):
                     intersection = line1.intersection(line2)
                     self._add_intersection_points(intersection)
