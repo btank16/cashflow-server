@@ -18,16 +18,19 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ```
 
 ### Required Fields
+
 - `street`: Street address
 - `city`: City name
 - `state`: State abbreviation
 
 ### Optional Fields
+
 - `zip`: ZIP code (recommended for better accuracy)
 
 ## Output Format
 
 ### Success Response
+
 ```json
 {
   "success": true,
@@ -56,6 +59,7 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ```
 
 ### Error Response
+
 ```json
 {
   "success": false,
@@ -78,6 +82,7 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ## Test Examples
 
 ### Valid US Address
+
 ```json
 {
   "street": "350 Fifth Avenue",
@@ -88,6 +93,7 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ```
 
 ### Address Without ZIP
+
 ```json
 {
   "street": "1 Apple Park Way",
@@ -97,6 +103,7 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ```
 
 ### Invalid Address (Should Return NOT_FOUND)
+
 ```json
 {
   "street": "123 Fake Street",
@@ -109,6 +116,7 @@ This function tests the OpenStreetMap Nominatim geocoding implementation in `pro
 ## Rate Limiting
 
 The geocoding function uses GeoPy's RateLimiter to enforce Nominatim's usage policy:
+
 - Maximum 1 request per second
 - Automatic retry on rate limit errors
 - 10 second timeout per request
@@ -119,3 +127,21 @@ The geocoding function uses GeoPy's RateLimiter to enforce Nominatim's usage pol
 - Results are limited to US addresses (`countrycodes='us'`)
 - The geocoder instance is cached globally for consistent rate limiting
 - All requests include a custom User-Agent as required by Nominatim policy
+
+  {
+  "osm_boundary_test": true,
+  "target_address": {
+  "street": "2092 W 101st St",
+  "city": "Cleveland",
+  "state": "OH",
+  "zip": "44102"
+  },
+  "test_addresses": [
+  {"street": "2142 W 105th St", "city": "Cleveland", "state": "OH", "zip": "44102"},
+  {"street": "2173 W 106th St", "city": "Cleveland", "state": "OH", "zip": "44102"},
+  {"street": "2182 West Blvd", "city": "Cleveland", "state": "OH", "zip": "44102"},
+  {"street": "2179 West 106th Street", "city": "Cleveland", "state": "OH", "zip": "44102"},
+  {"street": "1345 W 87th St", "city": "Cleveland", "state": "OH", "zip": "44102"},
+  {"street": "1591 W 116th St", "city": "Cleveland", "state": "OH", "zip": "44102"}
+  ]
+  }

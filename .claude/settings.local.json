@@ -17,7 +17,8 @@
       "WebFetch(domain:medium.com)",
       "WebFetch(domain:nominatim.org)",
       "WebFetch(domain:operations.osmfoundation.org)",
-      "WebFetch(domain:wiki.openstreetmap.org)"
+      "WebFetch(domain:wiki.openstreetmap.org)",
+      "WebFetch(domain:shapely.readthedocs.io)"
     ],
     "deny": [],
     "ask": []
