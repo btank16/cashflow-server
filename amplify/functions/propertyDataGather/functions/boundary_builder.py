@@ -122,31 +122,66 @@ class BoundaryBuilder:
 
         # For each line, query spatial index
         for i, line1 in enumerate(all_lines):
-            # Query returns indices of potentially intersecting lines
+            # Query returns indices of potentially intersecting lines (numpy array)
             potential_indices = tree.query(line1)
 
-            # Convert to list (handles numpy array or other return types)
+            # Properly convert numpy array to Python integers
+            indices_to_check = []
             try:
-                indices_to_check = list(potential_indices)
-            except (TypeError, ValueError):
+                # Handle numpy arrays - use tolist() for proper conversion
+                if hasattr(potential_indices, 'tolist'):
+                    indices_to_check = potential_indices.tolist()
+                # Handle regular lists or tuples
+                elif hasattr(potential_indices, '__iter__'):
+                    indices_to_check = [int(idx) for idx in potential_indices]
+                # Handle scalar values
+                else:
+                    indices_to_check = [int(potential_indices)]
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.debug(f"Failed to convert indices for line {i}: {e}, type: {type(potential_indices)}")
                 indices_to_check = []
 
+            # Ensure indices_to_check is a flat list of integers
+            if not isinstance(indices_to_check, list):
+                try:
+                    indices_to_check = list(indices_to_check)
+                except (TypeError, ValueError):
+                    indices_to_check = []
+
             for j in indices_to_check:
-                # Skip self and already-checked pairs
-                if i == j:
+                # Convert j to int if it's a numpy type
+                try:
+                    j_int = int(j)
+                except (TypeError, ValueError):
+                    logger.warning(f"Invalid index type: {type(j)}, skipping")
                     continue
 
-                pair_key = tuple(sorted([i, j]))
+                # Skip self and already-checked pairs
+                if i == j_int:
+                    continue
+
+                pair_key = tuple(sorted([i, j_int]))
                 if pair_key in checked_pairs:
                     continue
 
                 checked_pairs.add(pair_key)
 
                 # Get actual line and check intersection
-                line2 = all_lines[j]
-                if line1.intersects(line2):
-                    intersection = line1.intersection(line2)
-                    self._add_intersection_points(intersection)
+                try:
+                    line2 = all_lines[j_int]
+
+                    # Verify line2 is a LineString
+                    if not isinstance(line2, LineString):
+                        logger.warning(f"Index {j_int} returned non-LineString: {type(line2)}")
+                        continue
+
+                    if line1.intersects(line2):
+                        intersection = line1.intersection(line2)
+                        self._add_intersection_points(intersection)
+
+                except (IndexError, TypeError) as e:
+                    logger.warning(f"Error accessing line at index {j_int}: {e}")
+                    continue
 
         # Add endpoints and corners
         self._add_endpoints_and_corners()
