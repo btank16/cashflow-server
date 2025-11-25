@@ -7,6 +7,10 @@ import { defineFunction, secret } from '@aws-amplify/backend';
  * in specified ZIP codes with various filtering options.
  *
  * The actor can search for properties for sale, for rent, or recently sold.
+ *
+ * This function is configured to use Apify residential proxies to improve
+ * reliability and avoid rate limiting. Proxy authentication is handled
+ * automatically by the Apify SDK using the API token.
  */
 export const zillowZipSearch = defineFunction({
   name: 'zillow-zip-search',

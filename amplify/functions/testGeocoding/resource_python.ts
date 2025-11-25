@@ -18,7 +18,7 @@ export const testGeocoding = defineFunction(
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
       timeout: Duration.seconds(300),
-      memorySize: 512,
+      memorySize: 256,
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),

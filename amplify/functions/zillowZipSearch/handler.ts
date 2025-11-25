@@ -20,6 +20,7 @@ export interface ZillowZipSearchInput {
   forRent?: boolean;        // Optional: Include properties for rent
   sold?: boolean;           // Optional: Include recently sold properties
   maxItems?: number;        // Optional: Maximum number of items for Apify to return (pay-per-result limit)
+  proxyCountryCode?: string; // Optional: Two-letter country code for residential proxy (e.g., "US", "FR", "GB")
 }
 
 /**
@@ -41,6 +42,10 @@ const ACTOR_ID = 'maxcopell/zillow-zip-search';
  * This function runs the Zillow ZIP search actor to find properties
  * in specified ZIP codes with various filtering options.
  *
+ * The function uses Apify residential proxies to avoid rate limiting
+ * and improve reliability. You can optionally specify a country code
+ * for the proxy location.
+ *
  * Note: The response only includes the 'hdpData' field from each property
  * to optimize data transfer and processing.
  *
@@ -54,7 +59,8 @@ const ACTOR_ID = 'maxcopell/zillow-zip-search';
  *   "forSaleByOwner": false,
  *   "forRent": false,
  *   "sold": false,
- *   "maxItems": 100
+ *   "maxItems": 100,
+ *   "proxyCountryCode": "US"
  * }
  */
 export const handler = async (event: any) => {
@@ -131,6 +137,16 @@ export const handler = async (event: any) => {
       }
     }
 
+    // Validate proxyCountryCode if provided
+    if (input.proxyCountryCode !== undefined) {
+      if (!/^[A-Z]{2}$/.test(input.proxyCountryCode)) {
+        return createErrorResponse(
+          'proxyCountryCode must be a two-letter uppercase country code (e.g., "US", "FR", "GB")',
+          'VALIDATION_ERROR'
+        );
+      }
+    }
+
     // Get the Apify API key from environment
     const apiKey = process.env.APIFY_API_KEY;
     if (!apiKey) {
@@ -145,9 +161,21 @@ export const handler = async (event: any) => {
       timeoutSecs: 360
     });
 
+    // Build the proxy configuration for residential proxies
+    const proxyConfiguration: any = {
+      useApifyProxy: true,
+      apifyProxyGroups: ['RESIDENTIAL']
+    };
+
+    // Add country code if specified
+    if (input.proxyCountryCode) {
+      proxyConfiguration.apifyProxyCountry = input.proxyCountryCode;
+    }
+
     // Build the actor input with only the parameters the actor accepts
     const actorInput: any = {
-      zipCodes: input.zipCodes
+      zipCodes: input.zipCodes,
+      proxyConfiguration: proxyConfiguration
     };
 
     // Add optional filters if provided
