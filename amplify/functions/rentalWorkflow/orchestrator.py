@@ -1,6 +1,10 @@
 """
 Workflow Orchestrator
 Manages the execution flow of property data gathering functions.
+
+DEPRECATED: This orchestrator is deprecated. Use newRentalWorkflow/orchestrator.py instead.
+The new orchestrator provides ThreadPoolExecutor-based parallelism, improved thread safety,
+and support for additional data sources (Rentcast, Gemini).
 """
 
 import asyncio

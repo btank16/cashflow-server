@@ -13,7 +13,7 @@ import { socioNeighborhoodCompare } from './functions/socioNeighborhoodCompare/r
 import { cityCompare } from './functions/cityCompare/resource';
 import { zillowZipSearch } from './functions/zillowZipSearch/resource';
 import { apartmentComp } from './functions/apartmentComp/resource';
-import { rentalWorkflow } from './functions/rentalWorkflow/resource_python';
+import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { testGeocoding } from './functions/testGeocoding/resource_python';
 
 /**
@@ -34,7 +34,7 @@ const backend = defineBackend({
   cityCompare,
   zillowZipSearch,
   apartmentComp,
-  rentalWorkflow,
+  newRentalWorkflow,
   testGeocoding
 });
 

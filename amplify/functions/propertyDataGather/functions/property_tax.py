@@ -1,21 +1,8 @@
 """Property tax lookup function."""
 
-from typing import Dict, Any
 from pydantic import BaseModel
-import logging
-from ..common import (
-    FunctionResult,
-    ErrorCode,
-    validate_input,
-    create_error_response,
-    retry_with_backoff,
-    measure_execution_time,
-    PerplexityClient,
-    PerplexityRequest
-)
-from ..config import STANDARD_SYSTEM_PROMPT
 
-logger = logging.getLogger(__name__)
+from ..common import create_perplexity_function
 
 
 class PropertyTaxRealtorInput(BaseModel):
@@ -32,67 +19,22 @@ class PropertyTaxRealtorOutput(BaseModel):
     annual_taxes: float
 
 
-@measure_execution_time
-@retry_with_backoff(max_attempts=3)
-def get_property_tax(
-    input_data: Dict[str, Any],
-    perplexity_client: PerplexityClient
-) -> FunctionResult[PropertyTaxRealtorOutput]:
-    """
-    Get property tax information from Realtor.com.
-
-    Args:
-        input_data: Dictionary with street, city, state, zip, year
-        perplexity_client: Initialized Perplexity client
-
-    Returns:
-        FunctionResult containing annual taxes or error
-    """
-    # Validate input
-    validation = validate_input(input_data, ['street', 'city', 'state', 'zip', 'year'])
-    if not validation['is_valid']:
-        return create_error_response(
-            f"Missing required fields: {validation['missing_fields']}",
-            ErrorCode.VALIDATION_ERROR
-        )
-
-    # Parse input
-    try:
-        tax_input = PropertyTaxRealtorInput(**input_data)
-    except Exception as e:
-        return create_error_response(
-            f"Invalid input format: {str(e)}",
-            ErrorCode.VALIDATION_ERROR
-        )
-
-    # Build Perplexity request
-    user_prompt = f"I need you to look into the property history at a home in {tax_input.city} {tax_input.state}. Please find the {tax_input.year} taxes for the property at the following address: {tax_input.street}, {tax_input.city}, {tax_input.state} {tax_input.zip}"
-
-    # Use Pydantic's model_json_schema() for proper schema generation
-    json_schema = PropertyTaxRealtorOutput.model_json_schema()
-
-    request = PerplexityRequest(
-        model='sonar',
-        system_prompt=STANDARD_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        search_domain_filter=['realtor.com'],
-        json_schema=json_schema
+def _build_property_tax_prompt(input_obj: PropertyTaxRealtorInput) -> str:
+    """Build the prompt for property tax lookup."""
+    return (
+        f"I need you to look into the property history at a home in {input_obj.city} "
+        f"{input_obj.state}. Please find the {input_obj.year} taxes for the property at "
+        f"the following address: {input_obj.street}, {input_obj.city}, {input_obj.state} "
+        f"{input_obj.zip}"
     )
 
-    # Make API call
-    result = perplexity_client.chat_completion(request)
 
-    if not result.success:
-        return result
-
-    # Validate and parse output
-    try:
-        output = PropertyTaxRealtorOutput(**result.data)
-        result.data = output.model_dump()
-        return result
-    except Exception as e:
-        return create_error_response(
-            f"Failed to parse property tax data: {str(e)}",
-            ErrorCode.DATA_VALIDATION_ERROR,
-            metadata=result.metadata
-        )
+# Create the function using the factory
+get_property_tax: callable = create_perplexity_function(
+    input_model=PropertyTaxRealtorInput,
+    output_model=PropertyTaxRealtorOutput,
+    prompt_builder=_build_property_tax_prompt,
+    domains=['realtor.com'],
+    model='sonar',
+    function_name='get_property_tax'
+)

@@ -1,6 +1,15 @@
 """
 Rental Workflow Lambda Handler
 Entry point for the rental property data gathering workflow.
+
+DEPRECATED: This workflow is deprecated. Use newRentalWorkflow instead.
+newRentalWorkflow provides:
+- ThreadPoolExecutor-based parallelism (instead of asyncio)
+- Better error handling with ErrorCode enum
+- Improved thread safety
+- Support for additional data sources (Rentcast, Gemini)
+
+This workflow remains functional but will not receive new features.
 """
 
 import asyncio
@@ -39,6 +48,10 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     Returns:
         The workflow output with all gathered property data or error response
     """
+    logger.warning(
+        'DEPRECATION: rentalWorkflow is deprecated. '
+        'Please migrate to newRentalWorkflow for improved performance and features.'
+    )
     logger.info(f'Rental Workflow started: {json.dumps(event)}')
     start_time = time.time()
 

@@ -4,7 +4,7 @@ This directory contains the Python implementation of the property data gathering
 
 ## Overview
 
-The module provides 11 core functions for gathering comprehensive property data:
+The module provides 14 core functions for gathering comprehensive property data:
 
 ### Perplexity-based Functions (9)
 1. **County Lookup** - Get county name from city/state
@@ -20,8 +20,13 @@ The module provides 11 core functions for gathering comprehensive property data:
 ### Apify-based Functions (1)
 10. **Zillow ZIP Search** - Search properties by ZIP code
 
+### Rentcast API Functions (3)
+11. **Property Records** - Search property records
+12. **Rental Listings** - Search rental listings
+13. **Market Statistics** - Get market data by ZIP code
+
 ### Static Data Functions (1)
-11. **Metro Area Lookup** - Ohio cities/neighborhoods lookup
+14. **Metro Area Lookup** - Ohio cities/neighborhoods lookup
 
 ## Directory Structure
 
@@ -62,12 +67,12 @@ pip install -r requirements.txt
 ```
 
 ### Dependencies
-- `perplexityai==1.0.0` - Official Perplexity SDK
-- `apify-client==2.9.0` - Apify web scraping client
-- `pydantic==2.10.0` - Data validation
-- `python-dotenv==1.0.0` - Environment variables
-- `tenacity==9.0.0` - Retry logic
-- `typing-extensions==4.12.0` - Type hints
+- `perplexityai==0.19.1` - Official Perplexity SDK
+- `apify-client==2.2.1` - Apify web scraping client
+- `pydantic>=2.5.3,<3.0.0` - Data validation
+- `tenacity>=9.1.0,<10.0.0` - Retry logic
+- `typing-extensions>=4.10.0,<5.0.0` - Type hints
+- `requests>=2.31.0` - HTTP client for Rentcast API
 
 ## Configuration
 
@@ -76,6 +81,7 @@ Set up your environment variables:
 ```bash
 export PERPLEXITY_API_KEY="your-perplexity-api-key"
 export APIFY_API_KEY="your-apify-api-key"
+export RENTCAST_API_KEY="your-rentcast-api-key"
 ```
 
 Or use a `.env` file:
@@ -83,6 +89,7 @@ Or use a `.env` file:
 ```
 PERPLEXITY_API_KEY=your-perplexity-api-key
 APIFY_API_KEY=your-apify-api-key
+RENTCAST_API_KEY=your-rentcast-api-key
 ```
 
 ## Usage Examples
@@ -197,6 +204,101 @@ if result.success:
         print(f"  {city_info['city']}: {len(city_info['neighborhoods'])} neighborhoods")
 ```
 
+### Rentcast Property Records
+
+```python
+from propertyDataGather.functions import get_rentcast_property_records
+from propertyDataGather.common import RentcastClient
+from propertyDataGather.config import RENTCAST_API_KEY
+
+# Initialize Rentcast client
+client = RentcastClient(RENTCAST_API_KEY)
+
+# Search properties by ZIP code
+result = get_rentcast_property_records(
+    {
+        'zip_code': '43215',
+        'property_type': 'Single Family',
+        'bedrooms': '3:5',
+        'limit': 50
+    },
+    client
+)
+
+if result.success:
+    properties = result.data['properties']
+    print(f"Found {result.data['total_count']} properties")
+    for prop in properties[:5]:
+        print(f"Address: {prop.get('formattedAddress')}")
+        print(f"Bedrooms: {prop.get('bedrooms')}, Bathrooms: {prop.get('bathrooms')}")
+        print(f"Last Sale: ${prop.get('lastSalePrice')}")
+```
+
+### Rentcast Rental Listings
+
+```python
+from propertyDataGather.functions import get_rentcast_rental_listings
+from propertyDataGather.common import RentcastClient
+from propertyDataGather.config import RENTCAST_API_KEY
+
+client = RentcastClient(RENTCAST_API_KEY)
+
+# Search rental listings
+result = get_rentcast_rental_listings(
+    {
+        'city': 'Columbus',
+        'state': 'OH',
+        'bedrooms': '2:3',
+        'price': '1000:2000',
+        'status': 'Active',
+        'limit': 25
+    },
+    client
+)
+
+if result.success:
+    listings = result.data['listings']
+    print(f"Found {result.data['total_count']} active rentals")
+    for listing in listings[:5]:
+        print(f"Address: {listing.get('formattedAddress')}")
+        print(f"Price: ${listing.get('price')}/month")
+        print(f"Bedrooms: {listing.get('bedrooms')}, Bathrooms: {listing.get('bathrooms')}")
+```
+
+### Rentcast Market Statistics
+
+```python
+from propertyDataGather.functions import get_rentcast_market_stats
+from propertyDataGather.common import RentcastClient
+from propertyDataGather.config import RENTCAST_API_KEY
+
+client = RentcastClient(RENTCAST_API_KEY)
+
+# Get market statistics for a ZIP code
+result = get_rentcast_market_stats(
+    {
+        'zip_code': '43215',
+        'data_type': 'All',
+        'history_range': 12
+    },
+    client
+)
+
+if result.success:
+    data = result.data
+
+    if data['sale_data']:
+        sale = data['sale_data']
+        print(f"Sale Market - Average Price: ${sale.get('averagePrice')}")
+        print(f"Median Price: ${sale.get('medianPrice')}")
+        print(f"Total Listings: {sale.get('totalListings')}")
+
+    if data['rental_data']:
+        rental = data['rental_data']
+        print(f"Rental Market - Average Rent: ${rental.get('averageRent')}/month")
+        print(f"Median Rent: ${rental.get('medianRent')}/month")
+```
+
 ## Function Reference
 
 ### County Lookup
@@ -273,6 +375,31 @@ if result.success:
 - **Output**: Varies by lookup_type
 - **API Calls**: 0 (static data)
 - **Data**: Ohio cities and neighborhoods
+
+### Rentcast Property Records
+- **Function**: `get_rentcast_property_records(input_data, rentcast_client)`
+- **Input**: `{address?, city?, state?, zip_code?, latitude?, longitude?, radius?, property_type?, bedrooms?, bathrooms?, square_footage?, year_built?, limit?, offset?}`
+- **Output**: `{properties[], total_count}`
+- **API**: Rentcast `/v1/properties`
+- **Rate Limit**: 20 requests/second
+- **Returns**: Raw property records from Rentcast API
+
+### Rentcast Rental Listings
+- **Function**: `get_rentcast_rental_listings(input_data, rentcast_client)`
+- **Input**: `{address?, city?, state?, zip_code?, latitude?, longitude?, radius?, property_type?, bedrooms?, bathrooms?, price?, days_old?, status?, limit?, offset?}`
+- **Output**: `{listings[], total_count}`
+- **API**: Rentcast `/v1/listings/rental/long-term`
+- **Rate Limit**: 20 requests/second
+- **Returns**: Raw rental listing data from Rentcast API
+
+### Rentcast Market Statistics
+- **Function**: `get_rentcast_market_stats(input_data, rentcast_client)`
+- **Input**: `{zip_code, data_type?, history_range?}`
+- **Output**: `{zip_code, sale_data?, rental_data?}`
+- **API**: Rentcast `/v1/markets`
+- **Rate Limit**: 20 requests/second
+- **Returns**: Raw market statistics from Rentcast API
+- **Data Types**: "All" (default), "Sale", or "Rental"
 
 ## Error Handling
 
@@ -396,6 +523,9 @@ Typical execution times:
 - Similar areas: 2-5 seconds
 - Apartment search: 5-10 seconds (sonar-pro)
 - Zillow search: 30-300 seconds (depends on results)
+- Rentcast property records: 1-3 seconds
+- Rentcast rental listings: 1-3 seconds
+- Rentcast market statistics: 1-2 seconds
 - Metro area lookup: <1ms (static data)
 
 ## License

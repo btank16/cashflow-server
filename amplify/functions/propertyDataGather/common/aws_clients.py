@@ -2,7 +2,7 @@
 
 import os
 import logging
-from typing import Optional, Dict, Tuple, Any
+from typing import Dict, Any, Optional, NamedTuple
 
 try:
     # In Lambda runtime, boto3 is pre-installed
@@ -104,6 +104,12 @@ class AWSSecretsManager:
         Raises:
             ClientError: If parameters cannot be retrieved from SSM
         """
+        # Filter out None values
+        parameter_names = [p for p in parameter_names if p is not None]
+
+        if not parameter_names:
+            return {}
+
         # Check cache for all parameters
         if self.use_cache:
             uncached_params = [p for p in parameter_names if p not in self._cache]
@@ -179,62 +185,184 @@ def get_ssm_parameter(parameter_name: str, with_decryption: bool = True) -> str:
     return secrets_manager.get_parameter(parameter_name, with_decryption)
 
 
-def get_api_clients_from_env(
-    perplexity_env_var: str = 'PERPLEXITY_PARAM_NAME',
-    apify_env_var: str = 'APIFY_PARAM_NAME'
-) -> Tuple[Any, Any]:
+def get_perplexity_client_from_env(
+    perplexity_env_var: str = 'PERPLEXITY_PARAM_NAME'
+) -> Any:
     """
-    Convenience function to retrieve API clients from environment variables.
-
-    Reads SSM parameter names from environment variables, retrieves the
-    actual API keys from SSM, and returns initialized API clients.
+    Retrieve Perplexity client from SSM.
 
     Args:
         perplexity_env_var: Environment variable containing Perplexity SSM parameter name
-        apify_env_var: Environment variable containing Apify SSM parameter name
 
     Returns:
-        Tuple of (PerplexityClient, ApifyClient)
+        PerplexityClient instance
 
     Raises:
-        ValueError: If environment variables are not set
+        ValueError: If environment variable not set or API key not found
+        Exception: If parameter cannot be retrieved from SSM
+    """
+    from .perplexity_client import PerplexityClient
+
+    perplexity_param_name = os.environ.get(perplexity_env_var)
+    if not perplexity_param_name:
+        raise ValueError(f'Missing required environment variable: {perplexity_env_var}')
+
+    secrets_manager = AWSSecretsManager()
+    perplexity_api_key = secrets_manager.get_parameter(perplexity_param_name)
+
+    if not perplexity_api_key:
+        raise ValueError('Failed to retrieve Perplexity API key from SSM')
+
+    logger.info(f'Successfully initialized Perplexity client from SSM parameter: {perplexity_param_name}')
+    return PerplexityClient(perplexity_api_key)
+
+
+def get_gemini_client_from_env(
+    gemini_env_var: str = 'GEMINI_PARAM_NAME',
+    default_param_name: str = 'GeminiAPI'
+) -> Any:
+    """
+    Convenience function to retrieve Gemini client from SSM.
+
+    Args:
+        gemini_env_var: Environment variable containing Gemini SSM parameter name
+        default_param_name: Default SSM parameter name if env var not set
+
+    Returns:
+        GeminiClient instance
+
+    Raises:
+        ValueError: If API key cannot be retrieved
+        Exception: If parameter cannot be retrieved from SSM
+    """
+    from .gemini_client import GeminiClient
+
+    gemini_param_name = os.environ.get(gemini_env_var, default_param_name)
+    secrets_manager = AWSSecretsManager()
+    gemini_api_key = secrets_manager.get_parameter(gemini_param_name)
+
+    if not gemini_api_key:
+        raise ValueError('Failed to retrieve Gemini API key from SSM')
+
+    logger.info(f'Successfully initialized Gemini client from SSM parameter: {gemini_param_name}')
+    return GeminiClient(gemini_api_key)
+
+
+def get_rentcast_client_from_env(
+    rentcast_env_var: str = 'RENTCAST_PARAM_NAME',
+    default_param_name: str = 'RentCastAPI'
+) -> Any:
+    """
+    Convenience function to retrieve Rentcast client from SSM.
+
+    Args:
+        rentcast_env_var: Environment variable containing Rentcast SSM parameter name
+        default_param_name: Default SSM parameter name if env var not set
+
+    Returns:
+        RentcastClient instance
+
+    Raises:
+        ValueError: If API key cannot be retrieved
+        Exception: If parameter cannot be retrieved from SSM
+    """
+    from .rentcast_client import RentcastClient
+
+    rentcast_param_name = os.environ.get(rentcast_env_var, default_param_name)
+    secrets_manager = AWSSecretsManager()
+    rentcast_api_key = secrets_manager.get_parameter(rentcast_param_name)
+
+    if not rentcast_api_key:
+        raise ValueError('Failed to retrieve Rentcast API key from SSM')
+
+    logger.info(f'Successfully initialized Rentcast client from SSM parameter: {rentcast_param_name}')
+    return RentcastClient(rentcast_api_key)
+
+
+class APIClients(NamedTuple):
+    """Container for all API clients."""
+    perplexity: Any
+    gemini: Any
+    rentcast: Any
+
+
+def get_all_api_clients_from_env(
+    perplexity_env_var: str = 'PERPLEXITY_PARAM_NAME',
+    gemini_env_var: str = 'GEMINI_PARAM_NAME',
+    rentcast_env_var: str = 'RENTCAST_PARAM_NAME',
+    default_gemini_param: str = 'GeminiAPI',
+    default_rentcast_param: str = 'RentCastAPI'
+) -> APIClients:
+    """
+    Retrieve all API clients from environment variables in a single batch.
+
+    This is the recommended function for retrieving API clients as it:
+    - Batches SSM parameter retrieval into a single API call
+    - Returns all clients in a typed NamedTuple
+    - Uses consistent environment variable patterns
+
+    Args:
+        perplexity_env_var: Environment variable for Perplexity SSM parameter name
+        gemini_env_var: Environment variable for Gemini SSM parameter name
+        rentcast_env_var: Environment variable for Rentcast SSM parameter name
+        default_gemini_param: Default SSM parameter name for Gemini if env var not set
+        default_rentcast_param: Default SSM parameter name for Rentcast if env var not set
+
+    Returns:
+        APIClients NamedTuple with (perplexity, gemini, rentcast) clients
+
+    Raises:
+        ValueError: If required environment variables are not set or API keys not found
         Exception: If parameters cannot be retrieved from SSM
 
     Example:
-        >>> perplexity_client, apify_client = get_api_clients_from_env()
+        >>> clients = get_all_api_clients_from_env()
+        >>> clients.perplexity.search("query")
+        >>> clients.rentcast.get_property(address)
     """
-    # Import here to avoid circular dependencies
     from .perplexity_client import PerplexityClient
-    from apify_client import ApifyClient
+    from .gemini_client import GeminiClient
+    from .rentcast_client import RentcastClient
 
     # Get parameter names from environment
-    perplexity_param_name = os.environ.get(perplexity_env_var)
-    apify_param_name = os.environ.get(apify_env_var)
+    perplexity_param = os.environ.get(perplexity_env_var)
+    gemini_param = os.environ.get(gemini_env_var, default_gemini_param)
+    rentcast_param = os.environ.get(rentcast_env_var, default_rentcast_param)
 
-    if not perplexity_param_name or not apify_param_name:
-        missing = []
-        if not perplexity_param_name:
-            missing.append(perplexity_env_var)
-        if not apify_param_name:
-            missing.append(apify_env_var)
-        raise ValueError(f'Missing required environment variables: {", ".join(missing)}')
+    # Validate required env vars
+    if not perplexity_param:
+        raise ValueError(f'Missing required environment variable: {perplexity_env_var}')
 
-    # Retrieve API keys from SSM
+    # Batch retrieve all API keys from SSM
     secrets_manager = AWSSecretsManager()
     params = secrets_manager.get_multiple_parameters([
-        perplexity_param_name,
-        apify_param_name
+        perplexity_param,
+        gemini_param,
+        rentcast_param
     ])
 
-    perplexity_api_key = params.get(perplexity_param_name)
-    apify_api_key = params.get(apify_param_name)
+    # Extract API keys
+    perplexity_key = params.get(perplexity_param)
+    gemini_key = params.get(gemini_param)
+    rentcast_key = params.get(rentcast_param)
 
-    if not perplexity_api_key or not apify_api_key:
-        raise ValueError('Failed to retrieve API keys from SSM')
+    # Validate all keys were retrieved
+    missing_keys = []
+    if not perplexity_key:
+        missing_keys.append('Perplexity')
+    if not gemini_key:
+        missing_keys.append('Gemini')
+    if not rentcast_key:
+        missing_keys.append('Rentcast')
+    if missing_keys:
+        raise ValueError(f'Failed to retrieve API keys from SSM: {", ".join(missing_keys)}')
 
-    # Initialize and return clients
-    perplexity_client = PerplexityClient(perplexity_api_key)
-    apify_client = ApifyClient(apify_api_key)
+    # Initialize all clients
+    clients = APIClients(
+        perplexity=PerplexityClient(perplexity_key),
+        gemini=GeminiClient(gemini_key),
+        rentcast=RentcastClient(rentcast_key)
+    )
 
-    logger.info('Successfully initialized API clients from SSM parameters')
-    return perplexity_client, apify_client
+    logger.info('Successfully initialized all API clients from SSM parameters')
+    return clients

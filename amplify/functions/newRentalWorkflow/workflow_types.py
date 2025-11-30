@@ -1,0 +1,489 @@
+"""
+Type definitions for the New Rental Workflow Lambda function.
+Orchestrates property data gathering with ThreadPoolExecutor parallelism.
+"""
+
+import time
+import threading
+from typing import Dict, List, Optional, Any, Union
+from pydantic import BaseModel
+from enum import Enum
+
+# Import from propertyDataGather for consistency
+from propertyDataGather.common.types import ErrorCode, FunctionMetadata
+
+
+class WorkflowStepStatus(str, Enum):
+    """Status of a workflow step."""
+    PENDING = 'pending'
+    RUNNING = 'running'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+    SKIPPED = 'skipped'
+
+
+class WorkflowStep(str, Enum):
+    """Enumeration of all workflow steps."""
+    VALIDATION = 'validation'
+    INTEREST_RATE = 'interest_rate'
+    BOUNDARY_ANALYSIS = 'boundary_analysis'
+    PROPERTY_INFO = 'property_info'
+    PROPERTY_TAX = 'property_tax'
+    SALES_DATA = 'sales_data'
+
+
+# =============================================================================
+# Input Models
+# =============================================================================
+
+class NewRentalWorkflowInput(BaseModel):
+    """Input for the new rental workflow - address information."""
+    street: str
+    city: str
+    state: str
+    zip: str
+
+
+class WorkflowConfig(BaseModel):
+    """Configuration options for the workflow."""
+    default_down_payment: float = 20.0
+    default_loan_type: str = "30-year fixed"
+    sales_time_period: str = "6 months"
+    sqft_tolerance_percent: float = 0.10  # +/-10%
+    search_radius_miles: float = 2.0
+
+
+# =============================================================================
+# Step Result Models - Extends FunctionMetadata from propertyDataGather
+# =============================================================================
+
+class WorkflowStepMetadata(FunctionMetadata):
+    """Extended metadata for workflow steps."""
+    retry_attempted: bool = False
+
+
+class WorkflowStepResult(BaseModel):
+    """Result of a single workflow step."""
+    step_name: str
+    success: bool
+    status: WorkflowStepStatus = WorkflowStepStatus.PENDING
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    error_code: Optional[ErrorCode] = None
+    metadata: Optional[WorkflowStepMetadata] = None
+
+
+class WorkflowError(BaseModel):
+    """Error information from a workflow step."""
+    step: str
+    error: str
+    code: Optional[ErrorCode] = None
+
+
+# =============================================================================
+# Data Structure Models
+# =============================================================================
+
+class GeocodingData(BaseModel):
+    """Geocoding result data."""
+    lat: float
+    lon: float
+    type: str  # e.g., "house"
+    osm_type: str
+    osm_id: int
+    display_name: str
+    address: Dict[str, Any]
+    boundingbox: List[str]
+
+
+class BoundingBoxData(BaseModel):
+    """Bounding box analysis results."""
+    radius_bbox: List[float]  # [min_lat, max_lat, min_lon, max_lon]
+    radius_miles: float
+
+
+class PolygonData(BaseModel):
+    """Boundary polygon data."""
+    polygon: Optional[Dict[str, Any]] = None  # GeoJSON polygon
+    osm_ways_count: int = 0
+    polygon_area_sq_degrees: Optional[float] = None
+    construction_method: Optional[str] = None
+
+
+class InterestRateData(BaseModel):
+    """Interest rate result."""
+    interest_rate: float
+    state: str
+    loan_type: str
+    down_payment: float
+
+
+class PropertyTaxData(BaseModel):
+    """Property tax data."""
+    annual_taxes: float
+    tax_year: Optional[int] = None
+    source: str  # "rentcast" or "perplexity"
+
+
+class UnitData(BaseModel):
+    """Individual unit data for multi-family properties."""
+    beds: int
+    baths: Union[int, float]
+    sqft: int
+
+
+class PropertyInfoData(BaseModel):
+    """Property information from Rentcast or Perplexity."""
+    source: str  # "rentcast" or "perplexity"
+    property_type: Optional[str] = None
+
+    # Rentcast-specific fields
+    formatted_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    year_built: Optional[int] = None
+    lot_size: Optional[float] = None
+
+    # Common fields
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Union[int, float]] = None
+    square_footage: Optional[int] = None
+
+    # Multi-family unit breakdown
+    total_units: Optional[int] = None
+    units: Optional[List[UnitData]] = None
+
+    # Raw data from API
+    raw_data: Optional[Dict[str, Any]] = None
+
+
+class SalesDataEntry(BaseModel):
+    """Individual sales data entry."""
+    address: str
+    sale_date: Optional[str] = None
+    sale_price: Optional[Union[str, float]] = None
+    sqft: Optional[Union[str, int]] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+
+class SalesData(BaseModel):
+    """Sales data from Gemini or Rentcast."""
+    source: str  # "gemini" or "rentcast"
+    sales: List[SalesDataEntry]
+    total_count: int
+
+
+class ApartmentCompEntry(BaseModel):
+    """Individual apartment comp entry."""
+    address: str
+    rent: Optional[float] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Union[int, float]] = None
+    sqft: Optional[int] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+
+class ApartmentCompData(BaseModel):
+    """Apartment comps for a specific unit type."""
+    source: str  # "rentcast" or "perplexity"
+    unit_beds: int
+    unit_baths: Union[int, float]
+    unit_sqft: int
+    listings: List[ApartmentCompEntry]
+    total_count: int
+
+
+# =============================================================================
+# Workflow Data Container
+# =============================================================================
+
+class WorkflowData(BaseModel):
+    """Container for all workflow data."""
+    # Input address
+    address: NewRentalWorkflowInput
+
+    # Step 1 - Validation
+    geocoding: Optional[GeocodingData] = None
+
+    # Workflow 1 - Interest Rate
+    interest_rate: Optional[InterestRateData] = None
+
+    # Workflow 2 - Boundary Analysis
+    bounding_boxes: Optional[BoundingBoxData] = None
+    boundary_polygon: Optional[PolygonData] = None
+
+    # Workflow 3 - Property Data
+    property_info: Optional[PropertyInfoData] = None
+    property_tax: Optional[PropertyTaxData] = None
+    sales_data: Optional[SalesData] = None
+    apartment_comps: Optional[Dict[str, ApartmentCompData]] = None  # Keyed by "Xbd_Yba"
+
+
+# =============================================================================
+# Output Models
+# =============================================================================
+
+class WorkflowOutputMetadata(BaseModel):
+    """Metadata for the complete workflow output."""
+    total_api_calls: int
+    total_execution_time: float  # seconds
+    workflow_start_time: str
+    workflow_end_time: str
+    step_details: List[WorkflowStepResult]
+
+
+class NewRentalWorkflowOutput(BaseModel):
+    """Complete output of the new rental workflow."""
+    success: bool
+    completed_steps: List[str]
+    failed_steps: List[str]
+    skipped_steps: Optional[List[str]] = None
+    data: WorkflowData
+    metadata: WorkflowOutputMetadata
+    errors: Optional[List[WorkflowError]] = None
+
+
+# =============================================================================
+# Internal State Management
+# =============================================================================
+
+class WorkflowState:
+    """Internal workflow state for tracking progress."""
+
+    def __init__(
+        self,
+        input_data: NewRentalWorkflowInput,
+        config: WorkflowConfig,
+        start_time: float
+    ):
+        self.input = input_data
+        self.config = config
+        self.start_time = start_time
+
+        # Initialize step results using enum
+        self.steps: Dict[str, WorkflowStepResult] = {
+            step.value: WorkflowStepResult(
+                step_name=step.value,
+                success=False,
+                status=WorkflowStepStatus.PENDING
+            )
+            for step in WorkflowStep
+        }
+
+        # Apartment comps stored separately (multiple per workflow)
+        self.apartment_comps: Dict[str, WorkflowStepResult] = {}
+
+        # Workflow data accumulator
+        self.data = WorkflowData(address=input_data)
+
+        # Thread-safe lock for all mutable state updates
+        self._lock = threading.Lock()
+
+        # Metadata tracking
+        self.metadata = {
+            'total_api_calls': 0,
+            'total_execution_time': 0.0
+        }
+
+        # Errors list
+        self.errors: List[WorkflowError] = []
+
+    # =========================================================================
+    # Convenience methods for cleaner step updates
+    # =========================================================================
+
+    def complete_step(
+        self,
+        step: Union[WorkflowStep, str],
+        data: Optional[Dict[str, Any]] = None,
+        source: str = '',
+        api_calls: int = 1,
+        step_start: Optional[float] = None
+    ) -> None:
+        """Mark a step as successfully completed."""
+        step_name = step.value if isinstance(step, WorkflowStep) else step
+        execution_time = time.time() - step_start if step_start else 0.0
+
+        self.update_step(
+            step_name=step_name,
+            success=True,
+            status=WorkflowStepStatus.COMPLETED,
+            data=data,
+            metadata=WorkflowStepMetadata(
+                api_calls=api_calls,
+                execution_time=execution_time,
+                source=source
+            )
+        )
+
+    def fail_step(
+        self,
+        step: Union[WorkflowStep, str],
+        error: str,
+        error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+        api_calls: int = 0,
+        step_start: Optional[float] = None
+    ) -> None:
+        """Mark a step as failed."""
+        step_name = step.value if isinstance(step, WorkflowStep) else step
+        execution_time = time.time() - step_start if step_start else 0.0
+
+        self.update_step(
+            step_name=step_name,
+            success=False,
+            status=WorkflowStepStatus.FAILED,
+            error=error,
+            error_code=error_code,
+            metadata=WorkflowStepMetadata(
+                api_calls=api_calls,
+                execution_time=execution_time
+            )
+        )
+
+    # =========================================================================
+    # Core update methods
+    # =========================================================================
+
+    def update_step(
+        self,
+        step_name: str,
+        success: bool,
+        status: WorkflowStepStatus,
+        data: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+        error_code: Optional[ErrorCode] = None,
+        metadata: Optional[WorkflowStepMetadata] = None
+    ) -> None:
+        """Update a step result (thread-safe)."""
+        with self._lock:
+            if step_name in self.steps:
+                self.steps[step_name] = WorkflowStepResult(
+                    step_name=step_name,
+                    success=success,
+                    status=status,
+                    data=data,
+                    error=error,
+                    error_code=error_code,
+                    metadata=metadata
+                )
+
+                # Track API calls and execution time
+                if metadata:
+                    self.metadata['total_api_calls'] += metadata.api_calls
+                    self.metadata['total_execution_time'] += metadata.execution_time
+
+                # Track errors
+                if not success and error:
+                    self.errors.append(WorkflowError(
+                        step=step_name,
+                        error=error,
+                        code=error_code
+                    ))
+
+    def skip_step(
+        self,
+        step: Union[WorkflowStep, str],
+        reason: str,
+        dependency: Optional[str] = None
+    ) -> None:
+        """Mark a step as skipped due to a failed dependency (thread-safe)."""
+        step_name = step.value if isinstance(step, WorkflowStep) else step
+        error_code = ErrorCode.DEPENDENCY_FAILED if dependency else ErrorCode.SKIPPED
+
+        with self._lock:
+            if step_name in self.steps:
+                self.steps[step_name] = WorkflowStepResult(
+                    step_name=step_name,
+                    success=False,
+                    status=WorkflowStepStatus.SKIPPED,
+                    error=reason,
+                    error_code=error_code
+                )
+            else:
+                # For apartment comps or other dynamic steps
+                self.errors.append(WorkflowError(
+                    step=step_name,
+                    error=reason,
+                    code=error_code
+                ))
+
+    def add_apartment_comp_step(
+        self,
+        unit_key: str,
+        success: bool,
+        status: WorkflowStepStatus,
+        data: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+        error_code: Optional[ErrorCode] = None,
+        metadata: Optional[WorkflowStepMetadata] = None
+    ) -> None:
+        """Add an apartment comp step result (thread-safe)."""
+        step_name = f"apartment_comps_{unit_key}"
+
+        with self._lock:
+            self.apartment_comps[unit_key] = WorkflowStepResult(
+                step_name=step_name,
+                success=success,
+                status=status,
+                data=data,
+                error=error,
+                error_code=error_code,
+                metadata=metadata
+            )
+
+            # Track metadata
+            if metadata:
+                self.metadata['total_api_calls'] += metadata.api_calls
+                self.metadata['total_execution_time'] += metadata.execution_time
+
+            # Track errors
+            if not success and error:
+                self.errors.append(WorkflowError(
+                    step=step_name,
+                    error=error,
+                    code=error_code
+                ))
+
+    def complete_apartment_comp(
+        self,
+        unit_key: str,
+        data: Dict[str, Any],
+        source: str,
+        api_calls: int,
+        step_start: float
+    ) -> None:
+        """Mark an apartment comp step as completed."""
+        self.add_apartment_comp_step(
+            unit_key=unit_key,
+            success=True,
+            status=WorkflowStepStatus.COMPLETED,
+            data=data,
+            metadata=WorkflowStepMetadata(
+                api_calls=api_calls,
+                execution_time=time.time() - step_start,
+                source=source
+            )
+        )
+
+    def fail_apartment_comp(
+        self,
+        unit_key: str,
+        error: str,
+        error_code: ErrorCode,
+        api_calls: int,
+        step_start: float
+    ) -> None:
+        """Mark an apartment comp step as failed."""
+        self.add_apartment_comp_step(
+            unit_key=unit_key,
+            success=False,
+            status=WorkflowStepStatus.FAILED,
+            error=error,
+            error_code=error_code,
+            metadata=WorkflowStepMetadata(
+                api_calls=api_calls,
+                execution_time=time.time() - step_start
+            )
+        )

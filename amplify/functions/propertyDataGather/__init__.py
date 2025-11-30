@@ -15,6 +15,9 @@ Main Functions:
     - get_similar_areas: Find similar neighborhoods or cities
     - get_apartment_comps: Search for rental apartments
     - search_zillow_by_zip: Search Zillow by ZIP code (via Apify)
+    - get_rentcast_property_records: Search property records (via Rentcast)
+    - get_rentcast_rental_listings: Search rental listings (via Rentcast)
+    - get_rentcast_market_stats: Get market statistics by ZIP (via Rentcast)
     - get_metro_area_info: Static metro area data lookup
 
 Usage:
@@ -34,12 +37,14 @@ Usage:
 
 from . import config
 from . import common
-from . import functions
+# Note: 'functions' is not auto-imported to avoid loading dependencies (e.g., apify-client)
+# that may not be needed by all consumers. Import specific functions directly:
+#   from propertyDataGather.functions.geocoding import get_coordinates
+#   from propertyDataGather.functions import get_county_name
 
 __version__ = '1.0.0'
 
 __all__ = [
     'config',
-    'common',
-    'functions'
+    'common'
 ]

@@ -6,3 +6,4 @@ typing-extensions>=4.10.0,<5.0.0
 requests>=2.31.0
 shapely>=2.0.0
 networkx>=3.0
+google-genai>=1.0.0

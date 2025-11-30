@@ -1,0 +1,842 @@
+"""
+New Rental Workflow Orchestrator.
+Coordinates property data gathering using ThreadPoolExecutor for parallel operations.
+"""
+
+import time
+import logging
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Any, List, Optional, Tuple, Callable
+
+from .workflow_types import (
+    NewRentalWorkflowInput,
+    NewRentalWorkflowOutput,
+    WorkflowConfig,
+    WorkflowState,
+    WorkflowStep,
+    WorkflowStepStatus,
+    WorkflowStepMetadata,
+    WorkflowOutputMetadata,
+    WorkflowData,
+    GeocodingData,
+    BoundingBoxData,
+    PolygonData,
+    InterestRateData,
+    PropertyInfoData,
+    PropertyTaxData,
+    SalesData,
+    SalesDataEntry,
+    ApartmentCompData,
+    ApartmentCompEntry,
+    UnitData
+)
+
+# Import from propertyDataGather
+from propertyDataGather.common import (
+    PerplexityClient,
+    RentcastClient,
+    GeminiClient,
+    FunctionResult,
+    ErrorCode,
+    log_workflow_start,
+    log_workflow_complete
+)
+from propertyDataGather.common.osm_config import calculate_radius_bbox
+from propertyDataGather.functions.geocoding import get_coordinates, batch_geocode_addresses
+from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
+from propertyDataGather.functions.boundary_builder import build_boundary_polygon
+from propertyDataGather.functions.interest_rates import get_interest_rate
+from propertyDataGather.functions.rentcast_data import (
+    get_rentcast_property_records,
+    get_rentcast_rental_listings,
+    get_rentcast_sale_listings
+)
+from propertyDataGather.functions.property_details import get_initial_property_info
+from propertyDataGather.functions.property_tax import get_property_tax
+from propertyDataGather.functions.gemini_property_sales import get_recent_property_sales
+from propertyDataGather.functions.apartment_search import get_apartment_comps
+from propertyDataGather.functions.metro_area_lookup import is_valid_city
+from propertyDataGather.functions.neighborhood_lookup import get_neighborhood_name
+
+logger = logging.getLogger(__name__)
+
+
+class NewRentalWorkflowOrchestrator:
+    """
+    Orchestrates the new rental workflow using ThreadPoolExecutor for parallelism.
+
+    Workflow:
+    1. Validation: Geocode address, verify type == "house"
+    2. Parallel workflows:
+       - Workflow 1: Interest rate lookup
+       - Workflow 2: Boundary analysis (bbox + polygon)
+       - Workflow 3: Property data (info, tax, sales, apartment comps)
+    """
+
+    def __init__(
+        self,
+        perplexity_client: PerplexityClient,
+        rentcast_client: RentcastClient,
+        gemini_client: GeminiClient,
+        config: Optional[WorkflowConfig] = None
+    ):
+        self.perplexity_client = perplexity_client
+        self.rentcast_client = rentcast_client
+        self.gemini_client = gemini_client
+        self.config = config or WorkflowConfig()
+        self.state: Optional[WorkflowState] = None
+
+    def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the complete workflow."""
+        workflow_start_time = datetime.utcnow().isoformat() + "Z"
+        start_time = time.time()
+
+        # Parse and validate input
+        try:
+            workflow_input = NewRentalWorkflowInput(**input_data)
+        except Exception as e:
+            return self._build_error_response(f"Invalid input: {str(e)}", workflow_start_time, start_time)
+
+        # Initialize state
+        self.state = WorkflowState(input_data=workflow_input, config=self.config, start_time=start_time)
+
+        log_workflow_start('new_rental_workflow', {
+            'street': workflow_input.street,
+            'city': workflow_input.city,
+            'state': workflow_input.state,
+            'zip': workflow_input.zip
+        })
+
+        # Step 1: Validation
+        geocode_result = self._execute_validation(workflow_input)
+        if not geocode_result:
+            return self._build_output(workflow_start_time)
+
+        lat, lon = geocode_result['lat'], geocode_result['lon']
+
+        # Step 2: Parallel Workflows
+        logger.info("Starting parallel workflows")
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(self._execute_interest_rate_workflow, workflow_input.state): 'interest_rate',
+                executor.submit(self._execute_boundary_workflow, lat, lon): 'boundary_analysis',
+                executor.submit(self._execute_property_data_workflow, workflow_input, lat, lon): 'property_data'
+            }
+            for future in as_completed(futures):
+                workflow_name = futures[future]
+                try:
+                    future.result()
+                    logger.info(f"Workflow {workflow_name} completed")
+                except Exception as e:
+                    logger.error(f"Workflow {workflow_name} failed: {e}", exc_info=True)
+
+        return self._build_output(workflow_start_time)
+
+    # =========================================================================
+    # Step 1: Validation
+    # =========================================================================
+
+    def _execute_validation(self, input_data: NewRentalWorkflowInput) -> Optional[Dict[str, float]]:
+        """Execute validation step: geocode and verify type."""
+        step_start = time.time()
+
+        try:
+            result = get_coordinates({
+                'street': input_data.street,
+                'city': input_data.city,
+                'state': input_data.state,
+                'zip': input_data.zip
+            })
+
+            if not result.success:
+                self.state.fail_step(WorkflowStep.VALIDATION, result.error or "Geocoding failed",
+                                     result.error_code or ErrorCode.API_ERROR, 1, step_start)
+                return None
+
+            address_type = result.data.get('type', '')
+            if address_type != 'house':
+                self.state.fail_step(WorkflowStep.VALIDATION, f"Address type '{address_type}' is not 'house'",
+                                     ErrorCode.VALIDATION_ERROR, 1, step_start)
+                return None
+
+            lat_raw, lon_raw = result.data.get('lat'), result.data.get('lon')
+            if lat_raw is None or lon_raw is None:
+                self.state.fail_step(WorkflowStep.VALIDATION, "Geocoding returned no coordinates",
+                                     ErrorCode.MISSING_REQUIRED_FIELD, 1, step_start)
+                return None
+
+            lat, lon = float(lat_raw), float(lon_raw)
+            if lat == 0.0 and lon == 0.0:
+                self.state.fail_step(WorkflowStep.VALIDATION, "Geocoding returned invalid coordinates (0,0)",
+                                     ErrorCode.INVALID_COORDINATES, 1, step_start)
+                return None
+
+            # Store geocoding data
+            self.state.data.geocoding = GeocodingData(
+                lat=lat, lon=lon, type=address_type,
+                osm_type=result.data.get('osm_type', ''),
+                osm_id=int(result.data.get('osm_id', 0)) if result.data.get('osm_id') else 0,
+                display_name=result.data.get('display_name', ''),
+                address=result.data.get('address', {}),
+                boundingbox=result.data.get('boundingbox', [])
+            )
+
+            self.state.complete_step(WorkflowStep.VALIDATION, {'lat': lat, 'lon': lon, 'type': address_type},
+                                     'nominatim', 1, step_start)
+            return {'lat': lat, 'lon': lon}
+
+        except Exception as e:
+            logger.error(f"Validation error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.VALIDATION, str(e), ErrorCode.INTERNAL_ERROR, 1, step_start)
+            return None
+
+    # =========================================================================
+    # Workflow 1: Interest Rate
+    # =========================================================================
+
+    def _execute_interest_rate_workflow(self, state: str) -> None:
+        """Execute interest rate lookup workflow."""
+        step_start = time.time()
+
+        try:
+            result = get_interest_rate({
+                'state_name': state,
+                'down_payment': self.config.default_down_payment,
+                'loan_type': self.config.default_loan_type
+            }, self.perplexity_client)
+
+            if result.success and result.data:
+                self.state.data.interest_rate = InterestRateData(
+                    interest_rate=result.data.get('interest_rate', 0),
+                    state=state,
+                    loan_type=self.config.default_loan_type,
+                    down_payment=self.config.default_down_payment
+                )
+                self.state.complete_step(WorkflowStep.INTEREST_RATE, result.data, 'perplexity', 1, step_start)
+            else:
+                self.state.fail_step(WorkflowStep.INTEREST_RATE, result.error or "Failed to get interest rate",
+                                     result.error_code or ErrorCode.API_ERROR, 1, step_start)
+
+        except Exception as e:
+            logger.error(f"Interest rate workflow error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.INTEREST_RATE, str(e), ErrorCode.INTERNAL_ERROR, 1, step_start)
+
+    # =========================================================================
+    # Workflow 2: Boundary Analysis
+    # =========================================================================
+
+    def _execute_boundary_workflow(self, lat: float, lon: float) -> None:
+        """Execute boundary analysis workflow (radius bbox + polygon)."""
+        step_start = time.time()
+        api_calls = 0
+
+        try:
+            # Calculate radius bounding box
+            radius_bbox = calculate_radius_bbox(lat, lon, self.config.search_radius_miles)
+            self.state.data.bounding_boxes = BoundingBoxData(
+                radius_bbox=radius_bbox,
+                radius_miles=self.config.search_radius_miles
+            )
+
+            # Fetch OSM ways
+            osm_result = fetch_osm_ways({'bbox': radius_bbox})
+            api_calls += 1
+
+            if not osm_result.success:
+                # Partial success - have bounding box but no polygon
+                self.state.complete_step(WorkflowStep.BOUNDARY_ANALYSIS,
+                                         {'bounding_boxes': self.state.data.bounding_boxes.model_dump(),
+                                          'polygon_error': osm_result.error},
+                                         'overpass', api_calls, step_start)
+                return
+
+            # Build polygon
+            polygon_result = build_boundary_polygon(
+                osm_result.data.get('ways', []),
+                radius_bbox,
+                (lon, lat)  # Note: lon, lat order for GeoJSON
+            )
+
+            if polygon_result.success and polygon_result.data:
+                self.state.data.boundary_polygon = PolygonData(
+                    polygon=polygon_result.data.get('polygon'),
+                    osm_ways_count=len(osm_result.data.get('ways', [])),
+                    polygon_area_sq_degrees=polygon_result.data.get('polygon', {}).get('properties', {}).get('area_sq_degrees'),
+                    construction_method='intersection_based'
+                )
+
+            self.state.complete_step(WorkflowStep.BOUNDARY_ANALYSIS, {
+                'bounding_boxes': self.state.data.bounding_boxes.model_dump() if self.state.data.bounding_boxes else None,
+                'polygon': self.state.data.boundary_polygon.model_dump() if self.state.data.boundary_polygon else None
+            }, 'overpass', api_calls, step_start)
+
+        except Exception as e:
+            logger.error(f"Boundary analysis error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.BOUNDARY_ANALYSIS, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
+
+    # =========================================================================
+    # Workflow 3: Property Data
+    # =========================================================================
+
+    def _execute_property_data_workflow(self, input_data: NewRentalWorkflowInput, lat: float, lon: float) -> None:
+        """Execute property data workflow with sub-steps."""
+        # Step 3a: Property info (must complete first)
+        property_type, unit_data = self._execute_property_info(input_data, lat, lon)
+
+        if property_type is None:
+            logger.warning("property_info failed, skipping dependent steps")
+            self.state.skip_step(WorkflowStep.SALES_DATA, 'Skipped: property_info failed', 'property_info')
+            return
+
+        if unit_data is None:
+            logger.warning("property_info returned no unit_data, skipping apartment_comps")
+            self._execute_sales_data(property_type, input_data.zip, lat, lon)
+            return
+
+        # Steps 3b and 3c can run in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(self._execute_sales_data, property_type, input_data.zip, lat, lon),
+                executor.submit(self._execute_apartment_comps, lat, lon, unit_data,
+                                input_data.city, input_data.state, input_data.street, input_data.zip)
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Property data sub-workflow error: {e}", exc_info=True)
+
+    # =========================================================================
+    # Step 3a: Property Info
+    # =========================================================================
+
+    def _execute_property_info(self, input_data: NewRentalWorkflowInput, lat: float, lon: float) -> Tuple[Optional[str], Optional[List[Dict]]]:
+        """Execute property info lookup. Returns (property_type, unit_data) or (None, None) on failure."""
+        step_start = time.time()
+        api_calls = 0
+
+        try:
+            # Try Rentcast first
+            formatted_address = f"{input_data.street}, {input_data.city}, {input_data.state} {input_data.zip}"
+            rentcast_result = get_rentcast_property_records({'address': formatted_address}, self.rentcast_client)
+            api_calls += 1
+
+            if rentcast_result.success and rentcast_result.data.get('properties'):
+                return self._process_rentcast_property(rentcast_result.data['properties'][0], input_data, api_calls, step_start)
+
+            # Fallback to Perplexity
+            logger.info("Rentcast failed, falling back to Perplexity")
+            return self._execute_property_info_perplexity(input_data, api_calls, step_start)
+
+        except Exception as e:
+            logger.error(f"Property info error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.PROPERTY_INFO, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
+            return None, None
+
+    def _process_rentcast_property(self, property_data: Dict, input_data: NewRentalWorkflowInput,
+                                    api_calls: int, step_start: float) -> Tuple[Optional[str], Optional[List[Dict]]]:
+        """Process Rentcast property data."""
+        property_type = property_data.get('propertyType')
+
+        if not property_type:
+            logger.warning("Rentcast missing propertyType, falling back to Perplexity")
+            return self._execute_property_info_perplexity(input_data, api_calls, step_start)
+
+        property_info = PropertyInfoData(
+            source='rentcast',
+            property_type=property_type,
+            formatted_address=property_data.get('formattedAddress'),
+            latitude=property_data.get('latitude'),
+            longitude=property_data.get('longitude'),
+            year_built=property_data.get('yearBuilt'),
+            lot_size=property_data.get('lotSize'),
+            bedrooms=property_data.get('bedrooms'),
+            bathrooms=property_data.get('bathrooms'),
+            square_footage=property_data.get('squareFootage'),
+            raw_data=property_data
+        )
+
+        # Handle Multi-Family vs Single Family
+        if property_type == 'Multi-Family':
+            unit_data = self._get_multi_family_units(input_data, property_info, api_calls, step_start)
+            if unit_data is None:
+                return None, None
+        else:
+            unit_data = self._get_single_family_unit(property_data, input_data, api_calls, step_start)
+            if unit_data is None:
+                return None, None
+            property_info.total_units = 1
+            property_info.units = [UnitData(**unit_data[0])]
+
+        # Handle property tax from Rentcast
+        self._extract_rentcast_tax(property_data.get('propertyTaxes', []), input_data)
+
+        self.state.data.property_info = property_info
+        self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(), 'rentcast', api_calls, step_start)
+        return property_type, unit_data
+
+    def _get_multi_family_units(self, input_data: NewRentalWorkflowInput, property_info: PropertyInfoData,
+                                 api_calls: int, step_start: float) -> Optional[List[Dict]]:
+        """Get unit breakdown for multi-family property via Perplexity."""
+        county = self.state.data.geocoding.address.get('county', '') if self.state.data.geocoding else ''
+        county_name = county.replace(' County', '') if county else input_data.city
+
+        unit_result = get_initial_property_info({
+            'street': input_data.street, 'city': input_data.city,
+            'state': input_data.state, 'zip': input_data.zip, 'county_name': county_name
+        }, self.perplexity_client)
+        api_calls += 1
+
+        if not unit_result.success or not unit_result.data:
+            self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Multi-family: failed to retrieve unit breakdown",
+                                 ErrorCode.MISSING_REQUIRED_FIELD, api_calls, step_start)
+            return None
+
+        unit_beds = unit_result.data.get('unit_bed', [])
+        unit_baths = unit_result.data.get('unit_bath', [])
+        unit_sqft = unit_result.data.get('unit_sq_ft', [])
+
+        if not unit_beds or not unit_baths or not unit_sqft:
+            self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Multi-family: missing unit breakdown data",
+                                 ErrorCode.MISSING_REQUIRED_FIELD, api_calls, step_start)
+            return None
+
+        total_units = unit_result.data.get('total_units') or len(unit_beds)
+        property_info.total_units = total_units
+        property_info.units = [
+            UnitData(beds=unit_beds[i], baths=unit_baths[i], sqft=unit_sqft[i])
+            for i in range(min(len(unit_beds), len(unit_baths), len(unit_sqft)))
+        ]
+
+        return [{'beds': unit_beds[i], 'baths': unit_baths[i], 'sqft': unit_sqft[i]}
+                for i in range(min(len(unit_beds), len(unit_baths), len(unit_sqft)))]
+
+    def _get_single_family_unit(self, property_data: Dict, input_data: NewRentalWorkflowInput,
+                                 api_calls: int, step_start: float) -> Optional[List[Dict]]:
+        """Get unit data for single family property."""
+        beds = property_data.get('bedrooms')
+        baths = property_data.get('bathrooms')
+        sqft = property_data.get('squareFootage')
+
+        missing = [f for f, v in [('bedrooms', beds), ('bathrooms', baths), ('squareFootage', sqft)] if v is None]
+        if missing:
+            logger.warning(f"Rentcast missing fields: {missing}, falling back to Perplexity")
+            return None  # Will trigger Perplexity fallback
+
+        return [{'beds': beds, 'baths': baths, 'sqft': sqft}]
+
+    def _extract_rentcast_tax(self, property_taxes: List[Dict], input_data: NewRentalWorkflowInput) -> None:
+        """Extract property tax from Rentcast data or fallback to Perplexity."""
+        if property_taxes:
+            sorted_taxes = sorted(property_taxes, key=lambda x: x.get('year', 0), reverse=True)
+            if sorted_taxes and sorted_taxes[0].get('total'):
+                self.state.data.property_tax = PropertyTaxData(
+                    annual_taxes=sorted_taxes[0]['total'],
+                    tax_year=sorted_taxes[0].get('year'),
+                    source='rentcast'
+                )
+                self.state.complete_step(WorkflowStep.PROPERTY_TAX,
+                                         {'annual_taxes': sorted_taxes[0]['total'], 'year': sorted_taxes[0].get('year')},
+                                         'rentcast', 0, time.time())
+                return
+
+        # Fallback to Perplexity for property tax
+        self._execute_property_tax_perplexity(input_data)
+
+    def _execute_property_info_perplexity(self, input_data: NewRentalWorkflowInput,
+                                           prior_api_calls: int, step_start: float) -> Tuple[Optional[str], Optional[List[Dict]]]:
+        """Fallback to Perplexity for property info."""
+        county = self.state.data.geocoding.address.get('county', '') if self.state.data.geocoding else ''
+        county_name = county.replace(' County', '') if county else input_data.city
+        tax_year = datetime.now().year - 1
+
+        # Run property info and tax in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            details_future = executor.submit(get_initial_property_info, {
+                'street': input_data.street, 'city': input_data.city,
+                'state': input_data.state, 'zip': input_data.zip, 'county_name': county_name
+            }, self.perplexity_client)
+
+            tax_future = executor.submit(get_property_tax, {
+                'street': input_data.street, 'city': input_data.city,
+                'state': input_data.state, 'zip': input_data.zip, 'year': tax_year
+            }, self.perplexity_client)
+
+            details_result = details_future.result()
+            prior_api_calls += 1
+
+            property_type, unit_data = None, None
+
+            if details_result.success and details_result.data:
+                unit_beds = details_result.data.get('unit_bed', [])
+                unit_baths = details_result.data.get('unit_bath', [])
+                unit_sqft = details_result.data.get('unit_sq_ft', [])
+
+                if unit_beds and unit_baths and unit_sqft:
+                    total_units = details_result.data.get('total_units') or len(unit_beds)
+                    property_type = "Multi-Family" if total_units > 1 else "Single Family"
+
+                    property_info = PropertyInfoData(
+                        source='perplexity',
+                        property_type=property_type,
+                        bedrooms=sum(unit_beds),
+                        bathrooms=sum(unit_baths),
+                        square_footage=sum(unit_sqft),
+                        total_units=total_units,
+                        units=[UnitData(beds=unit_beds[i], baths=unit_baths[i], sqft=unit_sqft[i])
+                               for i in range(min(len(unit_beds), len(unit_baths), len(unit_sqft)))]
+                    )
+
+                    unit_data = [{'beds': unit_beds[i], 'baths': unit_baths[i], 'sqft': unit_sqft[i]}
+                                 for i in range(min(len(unit_beds), len(unit_baths), len(unit_sqft)))]
+
+                    self.state.data.property_info = property_info
+                    self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(),
+                                             'perplexity', prior_api_calls, step_start)
+                else:
+                    self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Perplexity returned incomplete data",
+                                         ErrorCode.MISSING_REQUIRED_FIELD, prior_api_calls, step_start)
+            else:
+                self.state.fail_step(WorkflowStep.PROPERTY_INFO, details_result.error or "Perplexity failed",
+                                     details_result.error_code or ErrorCode.API_ERROR, prior_api_calls, step_start)
+
+            # Handle tax result
+            tax_result = tax_future.result()
+            prior_api_calls += 1
+
+            if tax_result.success and tax_result.data and tax_result.data.get('annual_taxes') is not None:
+                self.state.data.property_tax = PropertyTaxData(
+                    annual_taxes=tax_result.data['annual_taxes'],
+                    tax_year=tax_year,
+                    source='perplexity'
+                )
+                self.state.complete_step(WorkflowStep.PROPERTY_TAX, tax_result.data, 'perplexity', 1, time.time())
+            else:
+                self.state.fail_step(WorkflowStep.PROPERTY_TAX, tax_result.error or "Failed to get property tax",
+                                     tax_result.error_code or ErrorCode.API_ERROR, 1, time.time())
+
+        return property_type, unit_data
+
+    def _execute_property_tax_perplexity(self, input_data: NewRentalWorkflowInput) -> None:
+        """Fallback to Perplexity for property tax."""
+        step_start = time.time()
+        tax_year = datetime.now().year - 1
+
+        try:
+            result = get_property_tax({
+                'street': input_data.street, 'city': input_data.city,
+                'state': input_data.state, 'zip': input_data.zip, 'year': tax_year
+            }, self.perplexity_client)
+
+            if result.success and result.data and result.data.get('annual_taxes') is not None:
+                self.state.data.property_tax = PropertyTaxData(
+                    annual_taxes=result.data['annual_taxes'],
+                    tax_year=tax_year,
+                    source='perplexity'
+                )
+                self.state.complete_step(WorkflowStep.PROPERTY_TAX, result.data, 'perplexity', 1, step_start)
+            else:
+                self.state.fail_step(WorkflowStep.PROPERTY_TAX, result.error or "No annual_taxes returned",
+                                     result.error_code or ErrorCode.MISSING_REQUIRED_FIELD, 1, step_start)
+
+        except Exception as e:
+            logger.error(f"Property tax fallback error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.PROPERTY_TAX, str(e), ErrorCode.INTERNAL_ERROR, 1, step_start)
+
+    # =========================================================================
+    # Step 3b: Sales Data
+    # =========================================================================
+
+    def _execute_sales_data(self, property_type: str, zip_code: str, lat: float, lon: float) -> None:
+        """Execute sales data lookup."""
+        step_start = time.time()
+        api_calls = 0
+
+        try:
+            # Try Gemini first
+            gemini_result = get_recent_property_sales({
+                'propertyType': property_type,
+                'zipCode': zip_code,
+                'timePeriod': self.config.sales_time_period
+            }, self.gemini_client)
+            api_calls += 1
+
+            if gemini_result.success and gemini_result.data.get('addresses'):
+                sales_data = self._process_gemini_sales(gemini_result.data, zip_code)
+                api_calls += len(gemini_result.data.get('addresses', []))
+                self.state.data.sales_data = sales_data
+                self.state.complete_step(WorkflowStep.SALES_DATA, sales_data.model_dump(), 'gemini', api_calls, step_start)
+                return
+
+            # Fallback to Rentcast
+            logger.info("Gemini sales failed, falling back to Rentcast")
+            rentcast_result = get_rentcast_sale_listings({
+                'latitude': lat, 'longitude': lon,
+                'radius': self.config.search_radius_miles,
+                'property_type': property_type
+            }, self.rentcast_client)
+            api_calls += 1
+
+            if rentcast_result.success and rentcast_result.data.get('listings'):
+                sales_data = self._process_rentcast_sales(rentcast_result.data['listings'])
+                self.state.data.sales_data = sales_data
+                self.state.complete_step(WorkflowStep.SALES_DATA, sales_data.model_dump(), 'rentcast', api_calls, step_start)
+            else:
+                self.state.fail_step(WorkflowStep.SALES_DATA, "No sales data found",
+                                     ErrorCode.NO_DATA, api_calls, step_start)
+
+        except Exception as e:
+            logger.error(f"Sales data error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.SALES_DATA, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
+
+    def _process_gemini_sales(self, data: Dict, zip_code: str) -> SalesData:
+        """Process Gemini sales data with geocoding."""
+        addresses = data.get('addresses', [])
+        sale_dates = data.get('saleDate', [])
+        sale_prices = data.get('salePrice', [])
+        sq_footages = data.get('sqFootage', [])
+
+        # Geocode addresses
+        addresses_to_geocode = [{'street': addr, 'city': '', 'state': '', 'zip': zip_code} for addr in addresses]
+        geocoded = batch_geocode_addresses(addresses_to_geocode)
+
+        entries = []
+        for i, addr in enumerate(addresses):
+            entry = SalesDataEntry(
+                address=addr,
+                sale_date=sale_dates[i] if i < len(sale_dates) else None,
+                sale_price=sale_prices[i] if i < len(sale_prices) else None,
+                sqft=sq_footages[i] if i < len(sq_footages) else None
+            )
+            if i < len(geocoded) and geocoded[i].success:
+                entry.lat = float(geocoded[i].data.get('lat', 0))
+                entry.lon = float(geocoded[i].data.get('lon', 0))
+            entries.append(entry)
+
+        return SalesData(source='gemini', sales=entries, total_count=len(entries))
+
+    def _process_rentcast_sales(self, listings: List[Dict]) -> SalesData:
+        """Process Rentcast sales listings."""
+        entries = [
+            SalesDataEntry(
+                address=listing.get('formattedAddress', ''),
+                sale_price=listing.get('price'),
+                sqft=listing.get('squareFootage'),
+                lat=listing.get('latitude'),
+                lon=listing.get('longitude')
+            )
+            for listing in listings
+        ]
+        return SalesData(source='rentcast', sales=entries, total_count=len(entries))
+
+    # =========================================================================
+    # Step 3c: Apartment Comps
+    # =========================================================================
+
+    def _execute_apartment_comps(self, lat: float, lon: float, unit_data: List[Dict],
+                                  city: str, state: str, street: str, zip_code: str) -> None:
+        """Execute apartment comps for each unit type."""
+        if not unit_data:
+            return
+
+        unique_units = self._get_unique_unit_types(unit_data)
+        if not unique_units:
+            return
+
+        apartment_comps = {}
+        with ThreadPoolExecutor(max_workers=min(len(unique_units), 4)) as executor:
+            futures = {
+                executor.submit(self._execute_single_apartment_comp, lat, lon, unit, city, state, street, zip_code):
+                f"{unit['beds']}bd_{unit['baths']}ba"
+                for unit in unique_units
+            }
+            for future in as_completed(futures):
+                unit_key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        apartment_comps[unit_key] = result
+                except Exception as e:
+                    logger.error(f"Apartment comp error for {unit_key}: {e}", exc_info=True)
+
+        self.state.data.apartment_comps = apartment_comps
+
+    def _get_unique_unit_types(self, unit_data: List[Dict]) -> List[Dict]:
+        """Get unique unit types by beds/baths combination."""
+        seen = set()
+        unique = []
+        for unit in unit_data:
+            key = (unit.get('beds', 0), unit.get('baths', 0))
+            if key not in seen:
+                seen.add(key)
+                unique.append(unit)
+        return unique
+
+    def _execute_single_apartment_comp(self, lat: float, lon: float, unit: Dict,
+                                        city: str, state: str, street: str, zip_code: str) -> Optional[ApartmentCompData]:
+        """Execute apartment comp search for a single unit type."""
+        step_start = time.time()
+        api_calls = 0
+
+        beds, baths, sqft = unit.get('beds'), unit.get('baths'), unit.get('sqft')
+        if beds is None or baths is None or sqft is None:
+            unit_key = f"{beds or '?'}bd_{baths or '?'}ba"
+            self.state.fail_apartment_comp(unit_key, "Missing required unit fields",
+                                           ErrorCode.MISSING_REQUIRED_FIELD, 0, step_start)
+            return None
+
+        unit_key = f"{beds}bd_{baths}ba"
+
+        try:
+            # Try Rentcast first
+            rentcast_result = get_rentcast_rental_listings({
+                'latitude': lat, 'longitude': lon,
+                'radius': self.config.search_radius_miles,
+                'bedrooms': str(beds), 'bathrooms': str(baths)
+            }, self.rentcast_client)
+            api_calls += 1
+
+            if rentcast_result.success and rentcast_result.data.get('listings'):
+                comp_data = self._process_rentcast_comps(rentcast_result.data['listings'], beds, baths, sqft)
+                self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'rentcast', api_calls, step_start)
+                return comp_data
+
+            # Fallback to Perplexity
+            logger.info(f"Rentcast rental failed for {unit_key}, falling back to Perplexity")
+            return self._execute_apartment_comp_perplexity(beds, baths, sqft, city, state, street, zip_code,
+                                                           unit_key, step_start, api_calls)
+
+        except Exception as e:
+            logger.error(f"Apartment comp error for {unit_key}: {e}", exc_info=True)
+            self.state.fail_apartment_comp(unit_key, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
+            return None
+
+    def _process_rentcast_comps(self, listings: List[Dict], beds: int, baths: int, sqft: int) -> ApartmentCompData:
+        """Process Rentcast rental listings."""
+        entries = [
+            ApartmentCompEntry(
+                address=listing.get('formattedAddress', ''),
+                rent=listing.get('price'),
+                bedrooms=listing.get('bedrooms'),
+                bathrooms=listing.get('bathrooms'),
+                sqft=listing.get('squareFootage'),
+                lat=listing.get('latitude'),
+                lon=listing.get('longitude')
+            )
+            for listing in listings
+        ]
+        return ApartmentCompData(source='rentcast', unit_beds=beds, unit_baths=baths,
+                                 unit_sqft=sqft, listings=entries, total_count=len(entries))
+
+    def _execute_apartment_comp_perplexity(self, beds: int, baths: int, sqft: int,
+                                            city: str, state: str, street: str, zip_code: str,
+                                            unit_key: str, step_start: float, api_calls: int) -> Optional[ApartmentCompData]:
+        """Fallback to Perplexity for apartment comps."""
+        try:
+            neighborhood = None
+            if is_valid_city(city):
+                neighborhood_result = get_neighborhood_name({
+                    'street': street, 'city': city, 'state': state, 'zip': zip_code
+                }, self.perplexity_client)
+                api_calls += 1
+                if neighborhood_result.success and neighborhood_result.data:
+                    neighborhood = neighborhood_result.data.get('neighborhood')
+
+            apartment_result = get_apartment_comps({
+                'city': city, 'state': state,
+                'bed_count': beds, 'bath_count': baths, 'neighborhood': neighborhood
+            }, self.perplexity_client)
+            api_calls += 1
+
+            if apartment_result.success and apartment_result.data.get('addresses'):
+                addresses = apartment_result.data['addresses']
+                addresses_to_geocode = [{'street': addr, 'city': city, 'state': state, 'zip': ''} for addr in addresses]
+                geocoded = batch_geocode_addresses(addresses_to_geocode)
+                api_calls += len(addresses)
+
+                entries = []
+                for i, addr in enumerate(addresses):
+                    entry = ApartmentCompEntry(address=addr, bedrooms=beds, bathrooms=baths)
+                    if i < len(geocoded) and geocoded[i].success:
+                        entry.lat = float(geocoded[i].data.get('lat', 0))
+                        entry.lon = float(geocoded[i].data.get('lon', 0))
+                    entries.append(entry)
+
+                comp_data = ApartmentCompData(source='perplexity', unit_beds=beds, unit_baths=baths,
+                                              unit_sqft=sqft, listings=entries, total_count=len(entries))
+                self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'perplexity', api_calls, step_start)
+                return comp_data
+
+            self.state.fail_apartment_comp(unit_key, "No apartment comps found", ErrorCode.NO_DATA, api_calls, step_start)
+            return None
+
+        except Exception as e:
+            logger.error(f"Apartment comp fallback error: {e}", exc_info=True)
+            self.state.fail_apartment_comp(unit_key, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
+            return None
+
+    # =========================================================================
+    # Output Building
+    # =========================================================================
+
+    def _build_output(self, workflow_start_time: str) -> Dict[str, Any]:
+        """Build the final workflow output."""
+        workflow_end_time = datetime.utcnow().isoformat() + "Z"
+        total_execution_time = time.time() - self.state.start_time
+
+        completed, failed, skipped = [], [], []
+        for step_name, step_result in self.state.steps.items():
+            if step_result.status == WorkflowStepStatus.COMPLETED:
+                completed.append(step_name)
+            elif step_result.status == WorkflowStepStatus.FAILED:
+                failed.append(step_name)
+            elif step_result.status == WorkflowStepStatus.SKIPPED:
+                skipped.append(step_name)
+
+        for unit_key, step_result in self.state.apartment_comps.items():
+            step_name = f"apartment_comps_{unit_key}"
+            if step_result.status == WorkflowStepStatus.COMPLETED:
+                completed.append(step_name)
+            elif step_result.status == WorkflowStepStatus.FAILED:
+                failed.append(step_name)
+
+        step_details = list(self.state.steps.values()) + list(self.state.apartment_comps.values())
+
+        output = NewRentalWorkflowOutput(
+            success=len(completed) > 0 and self.state.steps[WorkflowStep.VALIDATION.value].success,
+            completed_steps=completed,
+            failed_steps=failed,
+            skipped_steps=skipped if skipped else None,
+            data=self.state.data,
+            metadata=WorkflowOutputMetadata(
+                total_api_calls=self.state.metadata['total_api_calls'],
+                total_execution_time=total_execution_time,
+                workflow_start_time=workflow_start_time,
+                workflow_end_time=workflow_end_time,
+                step_details=step_details
+            ),
+            errors=self.state.errors if self.state.errors else None
+        )
+
+        log_workflow_complete('new_rental_workflow', output.success, output.metadata.total_execution_time,
+                              len(completed), len(failed))
+
+        return output.model_dump(exclude_none=True)
+
+    def _build_error_response(self, error: str, workflow_start_time: str, start_time: float) -> Dict[str, Any]:
+        """Build an error response for invalid input."""
+        return {
+            'success': False,
+            'completed_steps': [],
+            'failed_steps': ['input_validation'],
+            'data': {},
+            'metadata': {
+                'total_api_calls': 0,
+                'total_execution_time': time.time() - start_time,
+                'workflow_start_time': workflow_start_time,
+                'workflow_end_time': datetime.utcnow().isoformat() + "Z",
+                'step_details': []
+            },
+            'errors': [{'step': 'input_validation', 'error': error, 'code': ErrorCode.VALIDATION_ERROR.value}]
+        }

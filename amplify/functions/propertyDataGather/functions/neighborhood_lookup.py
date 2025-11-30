@@ -1,21 +1,8 @@
 """Neighborhood lookup function."""
 
-from typing import Dict, Any
 from pydantic import BaseModel
-import logging
-from ..common import (
-    FunctionResult,
-    ErrorCode,
-    validate_input,
-    create_error_response,
-    retry_with_backoff,
-    measure_execution_time,
-    PerplexityClient,
-    PerplexityRequest
-)
-from ..config import STANDARD_SYSTEM_PROMPT
 
-logger = logging.getLogger(__name__)
+from ..common import create_perplexity_function
 
 
 class NeighborhoodNameInput(BaseModel):
@@ -31,67 +18,22 @@ class NeighborhoodNameOutput(BaseModel):
     neighborhood: str
 
 
-@measure_execution_time
-@retry_with_backoff(max_attempts=3)
-def get_neighborhood_name(
-    input_data: Dict[str, Any],
-    perplexity_client: PerplexityClient
-) -> FunctionResult[NeighborhoodNameOutput]:
-    """
-    Get the neighborhood name for a given address.
-
-    Args:
-        input_data: Dictionary with street, city, state, zip
-        perplexity_client: Initialized Perplexity client
-
-    Returns:
-        FunctionResult containing neighborhood name or error
-    """
-    # Validate input
-    validation = validate_input(input_data, ['street', 'city', 'state', 'zip'])
-    if not validation['is_valid']:
-        return create_error_response(
-            f"Missing required fields: {validation['missing_fields']}",
-            ErrorCode.VALIDATION_ERROR
-        )
-
-    # Parse input
-    try:
-        neighborhood_input = NeighborhoodNameInput(**input_data)
-    except Exception as e:
-        return create_error_response(
-            f"Invalid input format: {str(e)}",
-            ErrorCode.VALIDATION_ERROR
-        )
-
-    # Build Perplexity request
-    user_prompt = f"I need you to tell me what neighborhood of {neighborhood_input.city} {neighborhood_input.state} the following address is in: {neighborhood_input.street}, {neighborhood_input.city}, {neighborhood_input.state} {neighborhood_input.zip}. Please provide only the neighborhood name in your response"
-
-    # Use Pydantic's model_json_schema() for proper schema generation
-    json_schema = NeighborhoodNameOutput.model_json_schema()
-
-    request = PerplexityRequest(
-        model='sonar',
-        system_prompt=STANDARD_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        search_domain_filter=['zillow.com'],
-        json_schema=json_schema
+def _build_neighborhood_prompt(input_obj: NeighborhoodNameInput) -> str:
+    """Build the prompt for neighborhood lookup."""
+    return (
+        f"I need you to tell me what neighborhood of {input_obj.city} {input_obj.state} "
+        f"the following address is in: {input_obj.street}, {input_obj.city}, "
+        f"{input_obj.state} {input_obj.zip}. Please provide only the neighborhood name "
+        f"in your response"
     )
 
-    # Make API call
-    result = perplexity_client.chat_completion(request)
 
-    if not result.success:
-        return result
-
-    # Validate and parse output
-    try:
-        output = NeighborhoodNameOutput(**result.data)
-        result.data = output.model_dump()
-        return result
-    except Exception as e:
-        return create_error_response(
-            f"Failed to parse neighborhood data: {str(e)}",
-            ErrorCode.DATA_VALIDATION_ERROR,
-            metadata=result.metadata
-        )
+# Create the function using the factory
+get_neighborhood_name: callable = create_perplexity_function(
+    input_model=NeighborhoodNameInput,
+    output_model=NeighborhoodNameOutput,
+    prompt_builder=_build_neighborhood_prompt,
+    domains=['zillow.com'],
+    model='sonar',
+    function_name='get_neighborhood_name'
+)

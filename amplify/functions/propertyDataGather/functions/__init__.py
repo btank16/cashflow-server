@@ -40,6 +40,27 @@ from .metro_area_lookup import (
     get_state_hierarchy,
     search_neighborhoods
 )
+from .rentcast_data import (
+    get_rentcast_property_records,
+    get_rentcast_rental_listings,
+    get_rentcast_sale_listings,
+    get_rentcast_market_stats,
+    RentcastPropertyRecordsInput,
+    RentcastPropertyRecordsOutput,
+    RentcastListingsInput,
+    RentcastListingsOutput,
+    RentcastRentalListingsInput,
+    RentcastRentalListingsOutput,
+    RentcastSaleListingsInput,
+    RentcastSaleListingsOutput,
+    RentcastMarketStatsInput,
+    RentcastMarketStatsOutput
+)
+from .gemini_property_sales import (
+    get_recent_property_sales,
+    PropertySalesInput,
+    PropertySalesOutput
+)
 
 __all__ = [
     # County lookup
@@ -110,5 +131,24 @@ __all__ = [
     'get_cities_in_state',
     'get_neighborhoods_in_state',
     'get_state_hierarchy',
-    'search_neighborhoods'
+    'search_neighborhoods',
+    # Rentcast data
+    'get_rentcast_property_records',
+    'get_rentcast_rental_listings',
+    'get_rentcast_sale_listings',
+    'get_rentcast_market_stats',
+    'RentcastPropertyRecordsInput',
+    'RentcastPropertyRecordsOutput',
+    'RentcastListingsInput',
+    'RentcastListingsOutput',
+    'RentcastRentalListingsInput',
+    'RentcastRentalListingsOutput',
+    'RentcastSaleListingsInput',
+    'RentcastSaleListingsOutput',
+    'RentcastMarketStatsInput',
+    'RentcastMarketStatsOutput',
+    # Gemini property sales
+    'get_recent_property_sales',
+    'PropertySalesInput',
+    'PropertySalesOutput'
 ]

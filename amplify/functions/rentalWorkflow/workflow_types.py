@@ -1,6 +1,9 @@
 """
 Type definitions for the Rental Workflow Lambda function.
 Orchestrates multiple property data gathering functions.
+
+DEPRECATED: These types are deprecated. Use newRentalWorkflow/workflow_types.py instead.
+The new types provide ErrorCode enum integration and thread-safe state management.
 """
 
 from typing import Dict, List, Optional, Any

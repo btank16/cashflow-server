@@ -3,10 +3,10 @@
 from typing import Optional, List, Dict, Any
 from perplexity import Perplexity
 from pydantic import BaseModel
-import json
 import logging
-from .types import FunctionResult, FunctionMetadata, ErrorCode
-from .utils import create_error_response, create_success_response
+
+from .base_ai_client import BaseAIClient
+from .types import FunctionResult
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 class PerplexityRequest(BaseModel):
     """
     Request configuration for Perplexity API.
-    
-    When json_schema is provided, the API will use response_format with 
+
+    When json_schema is provided, the API will use response_format with
     json_schema mode to return structured JSON output that conforms to the schema.
-    
+
     Example:
         request = PerplexityRequest(
             model='sonar-pro',
@@ -37,7 +37,7 @@ class PerplexityRequest(BaseModel):
     json_schema: Optional[Dict[str, Any]] = None
 
 
-class PerplexityClient:
+class PerplexityClient(BaseAIClient):
     """Wrapper for Perplexity AI API client."""
 
     def __init__(self, api_key: str, max_retries: int = 2, timeout: float = 30.0):
@@ -49,8 +49,12 @@ class PerplexityClient:
             max_retries: Maximum number of retries
             timeout: Request timeout in seconds
         """
+        super().__init__(timeout=timeout)
         self.client = Perplexity(api_key=api_key, max_retries=max_retries, timeout=timeout)
-        self.api_calls = 0
+
+    def _get_client_name(self) -> str:
+        """Get the client name for logging."""
+        return "Perplexity"
 
     def chat_completion(self, request: PerplexityRequest) -> FunctionResult:
         """
@@ -63,7 +67,7 @@ class PerplexityClient:
             FunctionResult containing response data or error
         """
         try:
-            self.api_calls += 1
+            self._increment_api_calls()
 
             # Build messages
             messages = []
@@ -92,7 +96,6 @@ class PerplexityClient:
                 kwargs['web_search_options'] = web_search_options
 
             # Add response_format if json_schema is provided
-            # This uses Perplexity's native JSON mode for structured output
             if request.json_schema:
                 kwargs['response_format'] = {
                     'type': 'json_schema',
@@ -108,78 +111,22 @@ class PerplexityClient:
             if hasattr(response, 'choices') and response.choices:
                 content = response.choices[0].message.content
 
-                # Parse JSON if schema provided
-                # When using response_format with json_schema, Perplexity returns clean JSON
+                # Parse JSON if schema provided (uses base class method)
                 if request.json_schema:
-                    try:
-                        # With native JSON mode, content should be clean JSON
-                        # But we'll still handle potential markdown wrapping as fallback
-                        json_str = content.strip()
-                        
-                        # Remove markdown code blocks if present (shouldn't be needed with json_schema mode)
-                        if json_str.startswith('```json'):
-                            json_start = json_str.find('```json') + 7
-                            json_end = json_str.find('```', json_start)
-                            if json_end != -1:
-                                json_str = json_str[json_start:json_end].strip()
-                        elif json_str.startswith('```'):
-                            json_start = json_str.find('```') + 3
-                            json_end = json_str.find('```', json_start)
-                            if json_end != -1:
-                                json_str = json_str[json_start:json_end].strip()
-
-                        data = json.loads(json_str)
-                        return create_success_response(
-                            data=data,
-                            metadata=FunctionMetadata(
-                                api_calls=1,
-                                model=request.model,
-                                search_domains=request.search_domain_filter
-                            )
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON parsing error: {e}")
-                        logger.error(f"Raw content: {content}")
-                        # Return error instead of fallback to encourage proper error handling
-                        return create_error_response(
-                            f"Failed to parse JSON response: {str(e)}",
-                            ErrorCode.DATA_VALIDATION_ERROR,
-                            metadata=FunctionMetadata(
-                                api_calls=1,
-                                model=request.model,
-                                extra={'raw_content': content, 'json_parse_error': str(e)}
-                            )
-                        )
+                    return self._parse_json_response(
+                        content,
+                        request.model,
+                        extra_metadata={'search_domains': request.search_domain_filter}
+                    )
                 else:
                     # Return raw content for non-JSON requests
-                    return create_success_response(
+                    return self._create_success_result(
                         data=content,
-                        metadata=FunctionMetadata(
-                            api_calls=1,
-                            model=request.model,
-                            search_domains=request.search_domain_filter
-                        )
+                        model=request.model,
+                        search_domains=request.search_domain_filter
                     )
             else:
-                return create_error_response(
-                    "No response content from Perplexity",
-                    ErrorCode.NO_DATA,
-                    metadata=FunctionMetadata(api_calls=1)
-                )
+                return self._create_no_data_result(request.model)
 
         except Exception as e:
-            logger.error(f"Perplexity API error: {e}")
-            error_code = ErrorCode.API_ERROR
-
-            # Check for specific error types
-            error_str = str(e).lower()
-            if 'rate limit' in error_str or '429' in error_str:
-                error_code = ErrorCode.RATE_LIMIT_ERROR
-            elif 'timeout' in error_str:
-                error_code = ErrorCode.TIMEOUT_ERROR
-
-            return create_error_response(
-                f"Perplexity API error: {str(e)}",
-                error_code,
-                metadata=FunctionMetadata(api_calls=1)
-            )
+            return self._create_error_result(e, request.model)

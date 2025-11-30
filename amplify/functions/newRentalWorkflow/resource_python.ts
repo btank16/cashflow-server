@@ -1,6 +1,6 @@
 /**
- * AWS CDK Resource Configuration for Rental Workflow Lambda (Python)
- * Following AWS Amplify Gen 2 documentation pattern 
+ * AWS CDK Resource Configuration for New Rental Workflow Lambda (Python)
+ * Uses ThreadPoolExecutor for parallel operations
  */
 
 import { execSync } from 'node:child_process';
@@ -13,12 +13,12 @@ import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 const functionDir = path.dirname(fileURLToPath(import.meta.url));
 
-export const rentalWorkflow = defineFunction(
+export const newRentalWorkflow = defineFunction(
   (scope) => {
-    const lambdaFunction = new Function(scope, 'rentalWorkflow', {
+    const lambdaFunction = new Function(scope, 'newRentalWorkflow', {
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
-      timeout: Duration.seconds(300),
+      timeout: Duration.seconds(600),
       memorySize: 512,
       code: Code.fromAsset(functionDir, {
         bundling: {
@@ -26,18 +26,17 @@ export const rentalWorkflow = defineFunction(
           local: {
             tryBundle(outputDir: string) {
               // Copy function files first (before installing dependencies)
-              // This prevents dependencies from being overwritten by source files
               execSync(`cp ${path.join(functionDir, '*.py')} ${outputDir}/`, { stdio: 'inherit' });
-              execSync(`cp ${path.join(functionDir, 'requirements.txt')} ${outputDir}/`, { stdio: 'inherit' });
 
-              // Copy the propertyDataGather module
+              // Copy the propertyDataGather module (includes requirements.txt)
               const propertyDataGatherDir = path.join(functionDir, '..', 'propertyDataGather');
               execSync(`cp -r ${propertyDataGatherDir} ${path.join(outputDir)}/propertyDataGather`, { stdio: 'inherit' });
 
-              // Install Python dependencies for Lambda x86_64 environment
-              // Using pip with specific platform flags for Python 3.12
+              // Install Python dependencies using propertyDataGather's requirements.txt
+              // This ensures single source of truth for dependency versions
+              const requirementsPath = path.join(outputDir, 'propertyDataGather', 'requirements.txt');
               execSync(
-                `python3 -m pip install -r ${path.join(outputDir, 'requirements.txt')} -t ${outputDir} --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all: --upgrade`,
+                `python3 -m pip install -r ${requirementsPath} -t ${outputDir} --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all: --upgrade`,
                 { stdio: 'inherit' }
               );
 
@@ -48,17 +47,19 @@ export const rentalWorkflow = defineFunction(
       }),
     });
 
-    // Lambda will read the actual SecureString values from SSM at runtime
+    // Environment variables for SSM parameter names
     lambdaFunction.addEnvironment('PERPLEXITY_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI');
-    lambdaFunction.addEnvironment('APIFY_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/ApifyAPI');
+    lambdaFunction.addEnvironment('GEMINI_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/GeminiAPI');
+    lambdaFunction.addEnvironment('RENTCAST_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/RentCastAPI');
 
-    // Grant Lambda permission to read SSM parameters at runtime
+    // Grant Lambda permission to read all required SSM parameters
     lambdaFunction.addToRolePolicy(
       new PolicyStatement({
         actions: ['ssm:GetParameter', 'ssm:GetParameters'],
         resources: [
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`,
-          `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/ApifyAPI`,
+          `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/GeminiAPI`,
+          `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/RentCastAPI`,
         ],
       })
     );
