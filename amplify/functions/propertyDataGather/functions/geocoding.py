@@ -123,14 +123,15 @@ def get_coordinates(
         # Parse and validate input with Pydantic
         geo_input = GeocodingInput(**input_data)
 
-        # Build address query
+        # Build address query - filter out empty parts
         address_parts = [geo_input.street, geo_input.city, geo_input.state]
         if geo_input.zip:
             address_parts.append(geo_input.zip)
 
         # Add USA to improve accuracy for US addresses
         address_parts.append("USA")
-        full_address = ", ".join(address_parts)
+        # Filter out empty strings to handle full addresses passed in street field
+        full_address = ", ".join(part for part in address_parts if part)
 
         logger.info(f"Geocoding address: {full_address}")
 

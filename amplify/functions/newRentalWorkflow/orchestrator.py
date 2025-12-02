@@ -603,21 +603,28 @@ class NewRentalWorkflowOrchestrator:
         sale_prices = data.get('salePrice', [])
         sq_footages = data.get('sqFootage', [])
 
-        # Geocode addresses
-        addresses_to_geocode = [{'street': addr, 'city': '', 'state': '', 'zip': zip_code} for addr in addresses]
+        # Geocode addresses - Gemini returns full addresses like "4706 Franklin Blvd, Cleveland, OH 44102"
+        # Pass the full address as 'street' and Nominatim will parse it
+        addresses_to_geocode = [{'street': addr, 'city': '', 'state': '', 'zip': ''} for addr in addresses]
         geocoded = batch_geocode_addresses(addresses_to_geocode)
 
         entries = []
         for i, addr in enumerate(addresses):
+            # Extract lat/lon from geocoding result if successful
+            lat = None
+            lon = None
+            if i < len(geocoded) and geocoded[i].success and geocoded[i].data:
+                lat = float(geocoded[i].data.get('lat', 0)) if geocoded[i].data.get('lat') else None
+                lon = float(geocoded[i].data.get('lon', 0)) if geocoded[i].data.get('lon') else None
+
             entry = SalesDataEntry(
                 address=addr,
                 sale_date=sale_dates[i] if i < len(sale_dates) else None,
                 sale_price=sale_prices[i] if i < len(sale_prices) else None,
-                sqft=sq_footages[i] if i < len(sq_footages) else None
+                sqft=sq_footages[i] if i < len(sq_footages) else None,
+                lat=lat,
+                lon=lon
             )
-            if i < len(geocoded) and geocoded[i].success:
-                entry.lat = float(geocoded[i].data.get('lat', 0))
-                entry.lon = float(geocoded[i].data.get('lon', 0))
             entries.append(entry)
 
         return SalesData(source='gemini', sales=entries, total_count=len(entries))
