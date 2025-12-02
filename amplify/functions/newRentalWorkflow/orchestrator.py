@@ -596,6 +596,36 @@ class NewRentalWorkflowOrchestrator:
             logger.error(f"Sales data error: {e}", exc_info=True)
             self.state.fail_step(WorkflowStep.SALES_DATA, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
 
+    def _parse_full_address(self, full_address: str) -> Dict[str, str]:
+        """
+        Parse a full address string into components.
+
+        Expected format: "3414 W 94th St, Cleveland, OH 44102"
+        Returns: {'street': '3414 W 94th St', 'city': 'Cleveland', 'state': 'OH', 'zip': '44102'}
+        """
+        parts = [p.strip() for p in full_address.split(',')]
+
+        if len(parts) >= 3:
+            # Format: "street, city, state zip"
+            street = parts[0]
+            city = parts[1]
+            # Last part is "state zip" like "OH 44102"
+            state_zip = parts[2].split()
+            state = state_zip[0] if state_zip else ''
+            zip_code = state_zip[1] if len(state_zip) > 1 else ''
+            return {'street': street, 'city': city, 'state': state, 'zip': zip_code}
+        elif len(parts) == 2:
+            # Format: "street, city state zip"
+            street = parts[0]
+            city_state_zip = parts[1].split()
+            city = city_state_zip[0] if city_state_zip else ''
+            state = city_state_zip[1] if len(city_state_zip) > 1 else ''
+            zip_code = city_state_zip[2] if len(city_state_zip) > 2 else ''
+            return {'street': street, 'city': city, 'state': state, 'zip': zip_code}
+        else:
+            # Can't parse, return as street only
+            return {'street': full_address, 'city': '', 'state': '', 'zip': ''}
+
     def _process_gemini_sales(self, data: Dict, zip_code: str) -> SalesData:
         """Process Gemini sales data with geocoding."""
         addresses = data.get('addresses', [])
@@ -605,9 +635,9 @@ class NewRentalWorkflowOrchestrator:
 
         logger.info(f"Processing {len(addresses)} Gemini sales addresses for geocoding")
 
-        # Geocode addresses - Gemini returns full addresses like "4706 Franklin Blvd, Cleveland, OH 44102"
-        # Pass the full address as 'street' and Nominatim will parse it
-        addresses_to_geocode = [{'street': addr, 'city': '', 'state': '', 'zip': ''} for addr in addresses]
+        # Parse full addresses into components for geocoding
+        # Gemini returns addresses like "4706 Franklin Blvd, Cleveland, OH 44102"
+        addresses_to_geocode = [self._parse_full_address(addr) for addr in addresses]
         geocoded = batch_geocode_addresses(addresses_to_geocode)
 
         # Log geocoding results summary
