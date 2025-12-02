@@ -9,7 +9,7 @@ from .interest_rates import get_interest_rate, InterestRateFinalInput, InterestR
 from .comparable_sales import get_comparable_sales, ComparableSalesInput, ComparableSalesOutput
 from .similar_areas import get_similar_areas, SimilarAreasInput, SimilarAreasOutput
 from .apartment_search import get_apartment_comps, ApartmentCompInput, ApartmentCompOutput, deduplicate_addresses
-from .geocoding import get_coordinates, GeocodingInput, GeocodingOutput
+from .geocoding import get_coordinates, GeocodingInput, batch_geocode_addresses
 from .zillow_zip_search import (
     search_zillow_by_zip,
     ZillowZipSearchInput,
@@ -49,10 +49,6 @@ from .rentcast_data import (
     RentcastPropertyRecordsOutput,
     RentcastListingsInput,
     RentcastListingsOutput,
-    RentcastRentalListingsInput,
-    RentcastRentalListingsOutput,
-    RentcastSaleListingsInput,
-    RentcastSaleListingsOutput,
     RentcastMarketStatsInput,
     RentcastMarketStatsOutput
 )
@@ -103,7 +99,7 @@ __all__ = [
     # Geocoding
     'get_coordinates',
     'GeocodingInput',
-    'GeocodingOutput',
+    'batch_geocode_addresses',
     # Zillow search
     'search_zillow_by_zip',
     'ZillowZipSearchInput',
@@ -141,10 +137,6 @@ __all__ = [
     'RentcastPropertyRecordsOutput',
     'RentcastListingsInput',
     'RentcastListingsOutput',
-    'RentcastRentalListingsInput',
-    'RentcastRentalListingsOutput',
-    'RentcastSaleListingsInput',
-    'RentcastSaleListingsOutput',
     'RentcastMarketStatsInput',
     'RentcastMarketStatsOutput',
     # Gemini property sales
