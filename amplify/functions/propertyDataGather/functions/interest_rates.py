@@ -4,7 +4,7 @@ from typing import Dict, Any
 from pydantic import BaseModel
 
 from ..common import create_perplexity_function
-from ..common.types import FunctionResult
+from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import create_success_response, validate_input, create_error_response
 
 
@@ -88,7 +88,7 @@ def adjust_interest_rate(
     if not validation['is_valid']:
         return create_error_response(
             f"Missing required fields: {validation['missing_fields']}",
-            error_code='VALIDATION_ERROR'
+            ErrorCode.VALIDATION_ERROR
         )
 
     try:
@@ -96,7 +96,7 @@ def adjust_interest_rate(
     except Exception as e:
         return create_error_response(
             f"Invalid input format: {str(e)}",
-            error_code='VALIDATION_ERROR'
+            ErrorCode.VALIDATION_ERROR
         )
 
     base_rate = adj_input.interest_rate
