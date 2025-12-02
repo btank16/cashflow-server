@@ -51,7 +51,7 @@ from propertyDataGather.common.osm_config import calculate_radius_bbox
 from propertyDataGather.functions.geocoding import get_coordinates, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
 from propertyDataGather.functions.boundary_builder import build_boundary_polygon
-from propertyDataGather.functions.interest_rates import get_interest_rate
+from propertyDataGather.functions.interest_rates import get_interest_rate, adjust_interest_rate
 from propertyDataGather.functions.rentcast_data import (
     get_rentcast_property_records,
     get_rentcast_rental_listings,
@@ -761,7 +761,8 @@ class NewRentalWorkflowOrchestrator:
             rentcast_result = get_rentcast_rental_listings({
                 'latitude': lat, 'longitude': lon,
                 'radius': self.config.search_radius_miles,
-                'bedrooms': str(beds), 'bathrooms': str(baths)
+                'bedrooms': str(beds), 'bathrooms': str(baths),
+                'limit': 500
             }, self.rentcast_client)
             api_calls += 1
 
@@ -922,8 +923,20 @@ class NewRentalWorkflowOrchestrator:
             input_property.annual_taxes = data.property_tax.annual_taxes
             input_property.tax_year = data.property_tax.tax_year
 
-        # Add interest rate
-        if data.interest_rate:
+        # Add adjusted interest rate
+        if data.interest_rate and data.property_info:
+            adj_result = adjust_interest_rate({
+                'interest_rate': data.interest_rate.interest_rate,
+                'property_type': data.property_info.property_type or '',
+                'is_primary_residence': self.config.is_primary_residence
+            })
+            if adj_result.success and adj_result.data:
+                input_property.interest_rate = adj_result.data.get('adjusted_rate')
+            else:
+                # Fallback to base rate if adjustment fails
+                input_property.interest_rate = data.interest_rate.interest_rate
+        elif data.interest_rate:
+            # No property info available, use base rate
             input_property.interest_rate = data.interest_rate.interest_rate
 
         return input_property

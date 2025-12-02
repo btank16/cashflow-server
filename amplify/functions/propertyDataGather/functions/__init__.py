@@ -5,7 +5,14 @@ from .neighborhood_lookup import get_neighborhood_name, NeighborhoodNameInput, N
 from .property_details import get_initial_property_info, InitialPropertyInfoInput, InitialPropertyInfoOutput
 from .property_tax import get_property_tax, PropertyTaxRealtorInput, PropertyTaxRealtorOutput
 from .recent_sales import get_recent_sale_info, RecentSaleInfoInput, RecentSaleInfoOutput
-from .interest_rates import get_interest_rate, InterestRateFinalInput, InterestRateFinalOutput
+from .interest_rates import (
+    get_interest_rate,
+    InterestRateFinalInput,
+    InterestRateFinalOutput,
+    adjust_interest_rate,
+    AdjustedInterestRateInput,
+    AdjustedInterestRateOutput
+)
 from .comparable_sales import get_comparable_sales, ComparableSalesInput, ComparableSalesOutput
 from .similar_areas import get_similar_areas, SimilarAreasInput, SimilarAreasOutput
 from .apartment_search import get_apartment_comps, ApartmentCompInput, ApartmentCompOutput, deduplicate_addresses
@@ -94,6 +101,9 @@ __all__ = [
     'get_interest_rate',
     'InterestRateFinalInput',
     'InterestRateFinalOutput',
+    'adjust_interest_rate',
+    'AdjustedInterestRateInput',
+    'AdjustedInterestRateOutput',
     # Comparable sales
     'get_comparable_sales',
     'ComparableSalesInput',

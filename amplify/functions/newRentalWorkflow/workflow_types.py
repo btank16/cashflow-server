@@ -52,6 +52,7 @@ class WorkflowConfig(BaseModel):
     sales_time_period: str = "6 months"
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
+    is_primary_residence: bool = False
 
 
 # =============================================================================
