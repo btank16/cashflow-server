@@ -65,7 +65,8 @@ def _enforce_rate_limit():
             logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
             time.sleep(sleep_time)
 
-    _last_request_time = time.time()
+        # Update timestamp inside the lock to prevent race conditions
+        _last_request_time = time.time()
 
 
 @measure_execution_time
@@ -418,7 +419,12 @@ def batch_geocode_addresses(
     def geocode_with_index(index: int, address: Dict[str, Any]) -> Tuple[int, FunctionResult]:
         """Geocode single address and return with its index to maintain order."""
         try:
+            logger.debug(f"Geocoding address {index}: {address.get('street', 'N/A')[:50]}...")
             result = get_coordinates(address)
+            if result.success:
+                logger.debug(f"Address {index} geocoded: lat={result.data.get('lat')}, lon={result.data.get('lon')}")
+            else:
+                logger.warning(f"Address {index} geocoding failed: {result.error}")
             return (index, result)
         except Exception as e:
             logger.error(f"Exception geocoding address {index}: {e}", exc_info=True)

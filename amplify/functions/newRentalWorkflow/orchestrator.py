@@ -603,19 +603,34 @@ class NewRentalWorkflowOrchestrator:
         sale_prices = data.get('salePrice', [])
         sq_footages = data.get('sqFootage', [])
 
+        logger.info(f"Processing {len(addresses)} Gemini sales addresses for geocoding")
+
         # Geocode addresses - Gemini returns full addresses like "4706 Franklin Blvd, Cleveland, OH 44102"
         # Pass the full address as 'street' and Nominatim will parse it
         addresses_to_geocode = [{'street': addr, 'city': '', 'state': '', 'zip': ''} for addr in addresses]
         geocoded = batch_geocode_addresses(addresses_to_geocode)
+
+        # Log geocoding results summary
+        successful = sum(1 for g in geocoded if g.success)
+        logger.info(f"Geocoding complete: {successful}/{len(geocoded)} successful")
 
         entries = []
         for i, addr in enumerate(addresses):
             # Extract lat/lon from geocoding result if successful
             lat = None
             lon = None
-            if i < len(geocoded) and geocoded[i].success and geocoded[i].data:
-                lat = float(geocoded[i].data.get('lat', 0)) if geocoded[i].data.get('lat') else None
-                lon = float(geocoded[i].data.get('lon', 0)) if geocoded[i].data.get('lon') else None
+            if i < len(geocoded):
+                geo_result = geocoded[i]
+                if geo_result.success and geo_result.data:
+                    lat_str = geo_result.data.get('lat')
+                    lon_str = geo_result.data.get('lon')
+                    if lat_str:
+                        lat = float(lat_str)
+                    if lon_str:
+                        lon = float(lon_str)
+                    logger.debug(f"Geocoded '{addr}': lat={lat}, lon={lon}")
+                else:
+                    logger.warning(f"Geocoding failed for '{addr}': {geo_result.error}")
 
             entry = SalesDataEntry(
                 address=addr,
