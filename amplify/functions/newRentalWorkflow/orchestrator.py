@@ -29,7 +29,12 @@ from workflow_types import (
     SalesDataEntry,
     ApartmentCompData,
     ApartmentCompEntry,
-    UnitData
+    UnitData,
+    FormattedOutput,
+    FilteredSalesData,
+    FilteredApartmentData,
+    FiveNumberSummaryResult,
+    InputPropertyInfo
 )
 
 # Import from propertyDataGather
@@ -58,6 +63,8 @@ from propertyDataGather.functions.gemini_property_sales import get_recent_proper
 from propertyDataGather.functions.apartment_search import get_apartment_comps
 from propertyDataGather.functions.metro_area_lookup import is_valid_city
 from propertyDataGather.functions.neighborhood_lookup import get_neighborhood_name
+from propertyDataGather.functions.address_checker import check_addresses_against_polygon
+from propertyDataGather.functions.median_analysis import get_five_number_summary
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +137,9 @@ class NewRentalWorkflowOrchestrator:
                     logger.info(f"Workflow {workflow_name} completed")
                 except Exception as e:
                     logger.error(f"Workflow {workflow_name} failed: {e}", exc_info=True)
+
+        # Step 3: Post-Processing (filter by polygon + calculate summaries)
+        self._execute_post_processing()
 
         return self._build_output(workflow_start_time)
 
@@ -833,6 +843,239 @@ class NewRentalWorkflowOrchestrator:
             logger.error(f"Apartment comp fallback error: {e}", exc_info=True)
             self.state.fail_apartment_comp(unit_key, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
             return None
+
+    # =========================================================================
+    # Step 4: Post-Processing (Polygon Filtering + Five-Number Summary)
+    # =========================================================================
+
+    def _execute_post_processing(self) -> None:
+        """Execute post-processing: filter addresses by polygon and calculate summaries."""
+        step_start = time.time()
+
+        # Check if polygon is available
+        if not self.state.data.boundary_polygon or not self.state.data.boundary_polygon.polygon:
+            logger.warning("No polygon available for filtering, skipping formatted output")
+            self.state.skip_step(WorkflowStep.FORMATTED_OUTPUT, 'No polygon available', 'boundary_analysis')
+            return
+
+        polygon = self.state.data.boundary_polygon.polygon
+        formatted_output = FormattedOutput()
+
+        try:
+            # Build input property info from all collected data
+            formatted_output.input_property = self._build_input_property_info()
+
+            # Filter and analyze sales data
+            if self.state.data.sales_data and self.state.data.sales_data.sales:
+                formatted_output.sales_data = self._filter_and_analyze_sales(polygon)
+                logger.info(f"Sales data filtered: {formatted_output.sales_data.filtered_count}/{formatted_output.sales_data.original_count} within polygon")
+
+            # Filter and analyze apartment comps (for each unit type)
+            if self.state.data.apartment_comps:
+                formatted_output.apartment_comps = {}
+                for unit_key, comp_data in self.state.data.apartment_comps.items():
+                    filtered = self._filter_and_analyze_apartment_comp(polygon, unit_key, comp_data)
+                    if filtered:
+                        formatted_output.apartment_comps[unit_key] = filtered
+                        logger.info(f"Apartment comps {unit_key} filtered: {filtered.filtered_count}/{filtered.original_count} within polygon")
+
+            self.state.data.formatted_output = formatted_output
+            self.state.complete_step(WorkflowStep.FORMATTED_OUTPUT,
+                                     formatted_output.model_dump(),
+                                     'internal', 0, step_start)
+
+        except Exception as e:
+            logger.error(f"Post-processing error: {e}", exc_info=True)
+            self.state.fail_step(WorkflowStep.FORMATTED_OUTPUT, str(e), ErrorCode.INTERNAL_ERROR, 0, step_start)
+
+    def _build_input_property_info(self) -> InputPropertyInfo:
+        """Build consolidated input property info from all workflow data."""
+        data = self.state.data
+
+        # Start with address info
+        input_property = InputPropertyInfo(
+            street=data.address.street,
+            city=data.address.city,
+            state=data.address.state,
+            zip=data.address.zip
+        )
+
+        # Add geocoding info
+        if data.geocoding:
+            input_property.lat = data.geocoding.lat
+            input_property.lon = data.geocoding.lon
+            input_property.display_name = data.geocoding.display_name
+
+        # Add property details
+        if data.property_info:
+            input_property.property_type = data.property_info.property_type
+            input_property.bedrooms = data.property_info.bedrooms
+            input_property.bathrooms = data.property_info.bathrooms
+            input_property.square_footage = data.property_info.square_footage
+            input_property.year_built = data.property_info.year_built
+            input_property.lot_size = data.property_info.lot_size
+            input_property.total_units = data.property_info.total_units
+            input_property.units = data.property_info.units
+
+        # Add property tax info
+        if data.property_tax:
+            input_property.annual_taxes = data.property_tax.annual_taxes
+            input_property.tax_year = data.property_tax.tax_year
+
+        # Add interest rate
+        if data.interest_rate:
+            input_property.interest_rate = data.interest_rate.interest_rate
+
+        return input_property
+
+    def _filter_and_analyze_sales(self, polygon: Dict) -> FilteredSalesData:
+        """Filter sales data by polygon, calculate price per sqft, and compute summary."""
+        sales_data = self.state.data.sales_data
+
+        # Prepare addresses for filtering (only those with lat/lon)
+        addresses_to_check = []
+        for i, sale in enumerate(sales_data.sales):
+            if sale.lat is not None and sale.lon is not None:
+                addresses_to_check.append({
+                    'index': i,
+                    'lat': sale.lat,
+                    'lon': sale.lon
+                })
+
+        # Filter by polygon
+        filtered_entries = []
+        if addresses_to_check:
+            check_result = check_addresses_against_polygon({
+                'polygon': polygon,
+                'addresses': addresses_to_check
+            })
+
+            # Get filtered entries (inside + boundary)
+            if check_result.success:
+                inside_addresses = check_result.data.get('inside', [])
+                boundary_addresses = check_result.data.get('boundary', [])
+                inside_indices = {addr['index'] for addr in inside_addresses}
+                boundary_indices = {addr['index'] for addr in boundary_addresses}
+
+                for i, sale in enumerate(sales_data.sales):
+                    if i in inside_indices or i in boundary_indices:
+                        # Create a copy with price_per_sqft calculated
+                        entry_with_ppsf = self._calculate_price_per_sqft(sale)
+                        filtered_entries.append(entry_with_ppsf)
+
+        # Calculate five-number summary for price per square foot
+        price_per_sqft_values = []
+        for entry in filtered_entries:
+            if entry.price_per_sqft is not None:
+                price_per_sqft_values.append(entry.price_per_sqft)
+
+        price_summary = None
+        if price_per_sqft_values:
+            summary_result = get_five_number_summary({
+                'values': price_per_sqft_values,
+                'field_name': 'price_per_sqft'
+            })
+            if summary_result.success or summary_result.data:
+                price_summary = FiveNumberSummaryResult(**summary_result.data)
+                if summary_result.error_code:
+                    price_summary.error_code = summary_result.error_code.value
+
+        return FilteredSalesData(
+            filtered_addresses=filtered_entries,
+            filtered_count=len(filtered_entries),
+            original_count=len(sales_data.sales),
+            price_summary=price_summary
+        )
+
+    def _calculate_price_per_sqft(self, sale: SalesDataEntry) -> SalesDataEntry:
+        """Calculate price per square foot for a sales entry and return updated entry."""
+        # Create a copy of the sale entry
+        entry_dict = sale.model_dump()
+
+        # Calculate price per sqft if both price and sqft are available
+        price_per_sqft = None
+        if sale.sale_price is not None and sale.sqft is not None:
+            try:
+                # Parse price (handle string with $ and commas)
+                price_str = str(sale.sale_price).replace(',', '').replace('$', '')
+                price = float(price_str)
+
+                # Parse sqft (handle string)
+                sqft_str = str(sale.sqft).replace(',', '')
+                sqft = float(sqft_str)
+
+                if sqft > 0:
+                    price_per_sqft = round(price / sqft, 2)
+            except (ValueError, TypeError):
+                pass
+
+        entry_dict['price_per_sqft'] = price_per_sqft
+        return SalesDataEntry(**entry_dict)
+
+    def _filter_and_analyze_apartment_comp(
+        self,
+        polygon: Dict,
+        unit_key: str,
+        comp_data: ApartmentCompData
+    ) -> Optional[FilteredApartmentData]:
+        """Filter apartment comps by polygon and calculate rent summary."""
+
+        # Prepare addresses for filtering
+        addresses_to_check = []
+        for i, listing in enumerate(comp_data.listings):
+            if listing.lat is not None and listing.lon is not None:
+                addresses_to_check.append({
+                    'index': i,
+                    'lat': listing.lat,
+                    'lon': listing.lon
+                })
+
+        # Filter by polygon
+        filtered_entries = []
+        if addresses_to_check:
+            check_result = check_addresses_against_polygon({
+                'polygon': polygon,
+                'addresses': addresses_to_check
+            })
+
+            # Get filtered entries
+            if check_result.success:
+                inside_addresses = check_result.data.get('inside', [])
+                boundary_addresses = check_result.data.get('boundary', [])
+                inside_indices = {addr['index'] for addr in inside_addresses}
+                boundary_indices = {addr['index'] for addr in boundary_addresses}
+
+                for i, listing in enumerate(comp_data.listings):
+                    if i in inside_indices or i in boundary_indices:
+                        filtered_entries.append(listing)
+
+        # Calculate five-number summary for rents
+        rents = []
+        for entry in filtered_entries:
+            if entry.rent is not None:
+                try:
+                    rents.append(float(entry.rent))
+                except (ValueError, TypeError):
+                    pass
+
+        rent_summary = None
+        if rents:
+            summary_result = get_five_number_summary({
+                'values': rents,
+                'field_name': 'rent'
+            })
+            if summary_result.success or summary_result.data:
+                rent_summary = FiveNumberSummaryResult(**summary_result.data)
+                if summary_result.error_code:
+                    rent_summary.error_code = summary_result.error_code.value
+
+        return FilteredApartmentData(
+            unit_key=unit_key,
+            filtered_addresses=filtered_entries,
+            filtered_count=len(filtered_entries),
+            original_count=len(comp_data.listings),
+            rent_summary=rent_summary
+        )
 
     # =========================================================================
     # Output Building

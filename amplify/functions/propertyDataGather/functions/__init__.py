@@ -57,6 +57,17 @@ from .gemini_property_sales import (
     PropertySalesInput,
     PropertySalesOutput
 )
+from .median_analysis import (
+    get_five_number_summary,
+    FiveNumberSummaryInput,
+    FiveNumberSummaryOutput,
+    RangeOutput,
+    SingleValueOutput
+)
+from .address_checker import (
+    check_addresses_against_polygon,
+    batch_classify_addresses
+)
 
 __all__ = [
     # County lookup
@@ -142,5 +153,14 @@ __all__ = [
     # Gemini property sales
     'get_recent_property_sales',
     'PropertySalesInput',
-    'PropertySalesOutput'
+    'PropertySalesOutput',
+    # Median analysis
+    'get_five_number_summary',
+    'FiveNumberSummaryInput',
+    'FiveNumberSummaryOutput',
+    'RangeOutput',
+    'SingleValueOutput',
+    # Address checker
+    'check_addresses_against_polygon',
+    'batch_classify_addresses'
 ]

@@ -124,14 +124,10 @@ def get_coordinates(
         # Parse and validate input with Pydantic
         geo_input = GeocodingInput(**input_data)
 
-        # Build address query - filter out empty parts
+        # Build address string for logging
         address_parts = [geo_input.street, geo_input.city, geo_input.state]
         if geo_input.zip:
             address_parts.append(geo_input.zip)
-
-        # Add USA to improve accuracy for US addresses
-        address_parts.append("USA")
-        # Filter out empty strings to handle full addresses passed in street field
         full_address = ", ".join(part for part in address_parts if part)
 
         logger.info(f"Geocoding address: {full_address}")
@@ -139,14 +135,23 @@ def get_coordinates(
         # Enforce rate limiting (1 req/sec as per Nominatim usage policy)
         _enforce_rate_limit()
 
-        # Prepare request parameters
+        # Use structured query parameters (more reliable than free-form 'q' parameter)
+        # Only include non-empty values to avoid confusing Nominatim
         params = {
-            'q': full_address,
+            'country': 'USA',
             'format': 'json',
             'addressdetails': 1,  # Include structured address details
-            'limit': 1,  # Only return top result
-            'countrycodes': 'us'  # Limit to US results for better accuracy
+            'limit': 1  # Only return top result
         }
+        # Add address components only if they have values
+        if geo_input.street:
+            params['street'] = geo_input.street
+        if geo_input.city:
+            params['city'] = geo_input.city
+        if geo_input.state:
+            params['state'] = geo_input.state
+        if geo_input.zip:
+            params['postalcode'] = geo_input.zip
 
         # Prepare headers (User-Agent is REQUIRED by Nominatim)
         headers = {
@@ -167,6 +172,29 @@ def get_coordinates(
 
         # Parse JSON response
         json_data = response.json()
+
+        # If structured query fails, try free-form query as fallback
+        if not json_data or len(json_data) == 0:
+            logger.info(f"Structured query failed, trying free-form query for: {full_address}")
+            _enforce_rate_limit()
+
+            # Fallback to free-form query
+            fallback_params = {
+                'q': f"{full_address}, USA",
+                'format': 'json',
+                'addressdetails': 1,
+                'limit': 1,
+                'countrycodes': 'us'
+            }
+
+            response = requests.get(
+                NOMINATIM_API_URL,
+                params=fallback_params,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            json_data = response.json()
 
         if not json_data or len(json_data) == 0:
             logger.warning(f"No results found for address: {full_address}")

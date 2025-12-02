@@ -30,6 +30,7 @@ class WorkflowStep(str, Enum):
     PROPERTY_INFO = 'property_info'
     PROPERTY_TAX = 'property_tax'
     SALES_DATA = 'sales_data'
+    FORMATTED_OUTPUT = 'formatted_output'
 
 
 # =============================================================================
@@ -165,6 +166,7 @@ class SalesDataEntry(BaseModel):
     sqft: Optional[Union[str, int]] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    price_per_sqft: Optional[float] = None  # Calculated field for filtered output
 
 
 class SalesData(BaseModel):
@@ -196,6 +198,80 @@ class ApartmentCompData(BaseModel):
 
 
 # =============================================================================
+# Formatted Output Models
+# =============================================================================
+
+class FiveNumberSummaryResult(BaseModel):
+    """Five-number summary result from median_analysis."""
+    min: Optional[float] = None
+    q1: Optional[float] = None
+    median: Optional[float] = None
+    q3: Optional[float] = None
+    max: Optional[float] = None
+    count: int
+    result_type: str  # "full", "range", or "single"
+    field_name: Optional[str] = None
+    error_code: Optional[str] = None  # For insufficient data cases
+
+
+class InputPropertyInfo(BaseModel):
+    """Consolidated information about the input property."""
+    # Address info
+    street: str
+    city: str
+    state: str
+    zip: str
+
+    # Geocoding info
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    display_name: Optional[str] = None
+
+    # Property details
+    property_type: Optional[str] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Union[int, float]] = None
+    square_footage: Optional[int] = None
+    year_built: Optional[int] = None
+    lot_size: Optional[float] = None
+
+    # Multi-family specific
+    total_units: Optional[int] = None
+    units: Optional[List[UnitData]] = None
+
+    # Financial info
+    annual_taxes: Optional[float] = None
+    tax_year: Optional[int] = None
+
+    # Interest rate
+    interest_rate: Optional[float] = None
+
+
+class FilteredSalesData(BaseModel):
+    """Filtered sales data within polygon."""
+    filtered_addresses: List[SalesDataEntry]
+    filtered_count: int
+    original_count: int
+    price_summary: Optional[FiveNumberSummaryResult] = None
+
+
+class FilteredApartmentData(BaseModel):
+    """Filtered apartment comps within polygon for a unit type."""
+    unit_key: str  # e.g., "2bd_1ba"
+    filtered_addresses: List[ApartmentCompEntry]
+    filtered_count: int
+    original_count: int
+    rent_summary: Optional[FiveNumberSummaryResult] = None
+
+
+class FormattedOutput(BaseModel):
+    """Formatted and analyzed output data."""
+    input_property: Optional[InputPropertyInfo] = None
+    sales_data: Optional[FilteredSalesData] = None
+    apartment_comps: Optional[Dict[str, FilteredApartmentData]] = None  # Keyed by unit type
+
+
+# =============================================================================
 # Workflow Data Container
 # =============================================================================
 
@@ -219,6 +295,9 @@ class WorkflowData(BaseModel):
     property_tax: Optional[PropertyTaxData] = None
     sales_data: Optional[SalesData] = None
     apartment_comps: Optional[Dict[str, ApartmentCompData]] = None  # Keyed by "Xbd_Yba"
+
+    # Post-Processing - Formatted Output
+    formatted_output: Optional[FormattedOutput] = None
 
 
 # =============================================================================
