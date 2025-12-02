@@ -231,7 +231,8 @@ class WorkflowOutputMetadata(BaseModel):
     total_execution_time: float  # seconds
     workflow_start_time: str
     workflow_end_time: str
-    step_details: List[WorkflowStepResult]
+    # step_details excludes 'data' field to avoid duplication with top-level data
+    step_details: List[Dict[str, Any]]
 
 
 class NewRentalWorkflowOutput(BaseModel):

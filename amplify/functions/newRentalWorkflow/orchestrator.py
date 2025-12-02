@@ -807,7 +807,13 @@ class NewRentalWorkflowOrchestrator:
             elif step_result.status == WorkflowStepStatus.FAILED:
                 failed.append(step_name)
 
-        step_details = list(self.state.steps.values()) + list(self.state.apartment_comps.values())
+        # Build step_details without the 'data' field to avoid duplication
+        # (data is already in the top-level 'data' object)
+        all_steps = list(self.state.steps.values()) + list(self.state.apartment_comps.values())
+        step_details = [
+            step.model_dump(exclude={'data'}, exclude_none=True)
+            for step in all_steps
+        ]
 
         output = NewRentalWorkflowOutput(
             success=len(completed) > 0 and self.state.steps[WorkflowStep.VALIDATION.value].success,
