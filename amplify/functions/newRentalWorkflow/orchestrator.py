@@ -9,7 +9,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional, Tuple, Callable
 
-from .workflow_types import (
+from workflow_types import (
     NewRentalWorkflowInput,
     NewRentalWorkflowOutput,
     WorkflowConfig,
