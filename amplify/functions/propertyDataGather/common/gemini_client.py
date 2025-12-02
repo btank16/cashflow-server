@@ -39,7 +39,9 @@ class GeminiRequest(BaseModel):
     system_prompt: str = ''
     user_prompt: str
     json_schema: Optional[Dict[str, Any]] = None
-    thinking_level: str = 'low'  # 'low' or 'high'
+    # Gemini 3 Pro thinking levels: 'low' (reduced reasoning) or 'high' (enhanced reasoning)
+    # Note: thinking cannot be disabled for Gemini 3 Pro models
+    thinking_level: str = 'low'
     enable_search_grounding: bool = False
     temperature: float = 1.0  # Keep at default per Gemini docs
 
@@ -112,9 +114,11 @@ class GeminiClient(BaseAIClient):
                 'temperature': request.temperature,
             }
 
-            # Add thinking configuration
+            # Add thinking configuration for Gemini 3 Pro
+            # Gemini 3 Pro uses thinking_level ("low" or "high"), not thinking_budget
+            # Note: thinking cannot be disabled for Gemini 3 Pro models
             config_params['thinking_config'] = types.ThinkingConfig(
-                thinking_budget=0 if request.thinking_level == 'low' else -1
+                thinking_level=request.thinking_level
             )
 
             # Add system instruction if provided
