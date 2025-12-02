@@ -101,12 +101,12 @@ class NewRentalWorkflowOrchestrator:
         # Initialize state
         self.state = WorkflowState(input_data=workflow_input, config=self.config, start_time=start_time)
 
-        log_workflow_start('new_rental_workflow', {
+        log_workflow_start({
             'street': workflow_input.street,
             'city': workflow_input.city,
             'state': workflow_input.state,
             'zip': workflow_input.zip
-        })
+        }, 'new_rental_workflow', logger)
 
         # Step 1: Validation
         geocode_result = self._execute_validation(workflow_input)
@@ -819,8 +819,15 @@ class NewRentalWorkflowOrchestrator:
             errors=self.state.errors if self.state.errors else None
         )
 
-        log_workflow_complete('new_rental_workflow', output.success, output.metadata.total_execution_time,
-                              len(completed), len(failed))
+        log_workflow_complete(
+            'new_rental_workflow',
+            output.success,
+            completed,
+            failed,
+            self.state.metadata['total_api_calls'],
+            int(total_execution_time * 1000),
+            logger
+        )
 
         return output.model_dump(exclude_none=True)
 
