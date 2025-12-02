@@ -369,8 +369,8 @@ class NewRentalWorkflowOrchestrator:
             property_info.total_units = 1
             property_info.units = [UnitData(**unit_data[0])]
 
-        # Handle property tax from Rentcast
-        self._extract_rentcast_tax(property_data.get('propertyTaxes', []), input_data)
+        # Handle property tax from Rentcast (propertyTaxes is a dict keyed by year)
+        self._extract_rentcast_tax(property_data.get('propertyTaxes', {}), input_data)
 
         self.state.data.property_info = property_info
         self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(), 'rentcast', api_calls, step_start)
@@ -426,11 +426,17 @@ class NewRentalWorkflowOrchestrator:
 
         return [{'beds': beds, 'baths': baths, 'sqft': sqft}]
 
-    def _extract_rentcast_tax(self, property_taxes: List[Dict], input_data: NewRentalWorkflowInput) -> None:
-        """Extract property tax from Rentcast data or fallback to Perplexity."""
-        if property_taxes:
-            sorted_taxes = sorted(property_taxes, key=lambda x: x.get('year', 0), reverse=True)
-            if sorted_taxes and sorted_taxes[0].get('total'):
+    def _extract_rentcast_tax(self, property_taxes: Dict[str, Dict], input_data: NewRentalWorkflowInput) -> None:
+        """Extract property tax from Rentcast data or fallback to Perplexity.
+
+        Rentcast propertyTaxes is an object keyed by year, e.g.:
+        {"2024": {"year": 2024, "total": 4065}, "2023": {"year": 2023, "total": 3950}}
+        """
+        if property_taxes and isinstance(property_taxes, dict):
+            # Convert dict values to list and sort by year descending
+            tax_entries = list(property_taxes.values())
+            sorted_taxes = sorted(tax_entries, key=lambda x: x.get('year', 0) if isinstance(x, dict) else 0, reverse=True)
+            if sorted_taxes and isinstance(sorted_taxes[0], dict) and sorted_taxes[0].get('total'):
                 self.state.data.property_tax = PropertyTaxData(
                     annual_taxes=sorted_taxes[0]['total'],
                     tax_year=sorted_taxes[0].get('year'),
