@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Nominatim API configuration
 NOMINATIM_API_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = "CashflowTotal/1.0 (support@cashflow.deal)"
-REQUEST_TIMEOUT = 10  # seconds
+REQUEST_TIMEOUT = 30  # seconds (increased from 10 due to public API latency)
 RATE_LIMIT_DELAY = 1.0  # seconds between requests (Nominatim usage policy)
 
 
