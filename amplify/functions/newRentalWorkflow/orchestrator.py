@@ -1203,13 +1203,33 @@ class NewRentalWorkflowOrchestrator:
         entry_dict['price_per_sqft'] = price_per_sqft
         return SalesDataEntry(**entry_dict)
 
+    def _calculate_rent_per_sqft(self, listing: ApartmentCompEntry) -> ApartmentCompEntry:
+        """Calculate rent per square foot for an apartment comp entry and return updated entry."""
+        # Create a copy of the listing entry
+        entry_dict = listing.model_dump()
+
+        # Calculate rent per sqft if both rent and sqft are available
+        rent_per_sqft = None
+        if listing.rent is not None and listing.sqft is not None:
+            try:
+                rent = float(listing.rent)
+                sqft = float(listing.sqft)
+
+                if sqft > 0:
+                    rent_per_sqft = round(rent / sqft, 2)
+            except (ValueError, TypeError):
+                pass
+
+        entry_dict['rent_per_sqft'] = rent_per_sqft
+        return ApartmentCompEntry(**entry_dict)
+
     def _filter_and_analyze_apartment_comp(
         self,
         polygon: Dict,
         unit_key: str,
         comp_data: ApartmentCompData
     ) -> Optional[FilteredApartmentData]:
-        """Filter apartment comps by polygon and calculate rent summary."""
+        """Filter apartment comps by polygon, calculate rent per sqft, and compute summary."""
 
         # Prepare addresses for filtering
         addresses_to_check = []
@@ -1229,7 +1249,7 @@ class NewRentalWorkflowOrchestrator:
                 'addresses': addresses_to_check
             })
 
-            # Get filtered entries
+            # Get filtered entries (inside + boundary)
             if check_result.success:
                 inside_addresses = check_result.data.get('inside', [])
                 boundary_addresses = check_result.data.get('boundary', [])
@@ -1238,22 +1258,21 @@ class NewRentalWorkflowOrchestrator:
 
                 for i, listing in enumerate(comp_data.listings):
                     if i in inside_indices or i in boundary_indices:
-                        filtered_entries.append(listing)
+                        # Create a copy with rent_per_sqft calculated
+                        entry_with_rpsf = self._calculate_rent_per_sqft(listing)
+                        filtered_entries.append(entry_with_rpsf)
 
-        # Calculate five-number summary for rents
-        rents = []
+        # Calculate five-number summary for rent per square foot
+        rent_per_sqft_values = []
         for entry in filtered_entries:
-            if entry.rent is not None:
-                try:
-                    rents.append(float(entry.rent))
-                except (ValueError, TypeError):
-                    pass
+            if entry.rent_per_sqft is not None:
+                rent_per_sqft_values.append(entry.rent_per_sqft)
 
         rent_summary = None
-        if rents:
+        if rent_per_sqft_values:
             summary_result = get_five_number_summary({
-                'values': rents,
-                'field_name': 'rent'
+                'values': rent_per_sqft_values,
+                'field_name': 'rent_per_sqft'
             })
             if summary_result.success or summary_result.data:
                 rent_summary = FiveNumberSummaryResult(**summary_result.data)
