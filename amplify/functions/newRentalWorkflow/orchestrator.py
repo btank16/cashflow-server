@@ -22,6 +22,7 @@ from workflow_types import (
     GeocodingData,
     BoundingBoxData,
     PolygonData,
+    PolygonExpansionMetadata,
     InterestRateData,
     PropertyInfoData,
     PropertyTaxData,
@@ -50,7 +51,7 @@ from propertyDataGather.common import (
 from propertyDataGather.common.osm_config import calculate_radius_bbox
 from propertyDataGather.functions.geocoding import get_coordinates, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
-from propertyDataGather.functions.boundary_builder import build_boundary_polygon
+from propertyDataGather.functions.boundary_builder import build_boundary_polygon, expand_boundary_polygon
 from propertyDataGather.functions.interest_rates import get_interest_rate, adjust_interest_rate
 from propertyDataGather.functions.rentcast_data import (
     get_rentcast_property_records,
@@ -93,6 +94,9 @@ class NewRentalWorkflowOrchestrator:
         self.gemini_client = gemini_client
         self.config = config or WorkflowConfig()
         self.state: Optional[WorkflowState] = None
+        # Store boundary expansion data for potential use in post-processing
+        self._boundary_expansion_data: Optional[Dict[str, Any]] = None
+        self._target_coords: Optional[Tuple[float, float]] = None
 
     def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the complete workflow."""
@@ -242,6 +246,9 @@ class NewRentalWorkflowOrchestrator:
         api_calls = 0
 
         try:
+            # Store target coordinates for potential expansion
+            self._target_coords = (lon, lat)  # Note: lon, lat order for GeoJSON
+
             # Calculate radius bounding box
             radius_bbox = calculate_radius_bbox(lat, lon, self.config.search_radius_miles)
             self.state.data.bounding_boxes = BoundingBoxData(
@@ -261,19 +268,26 @@ class NewRentalWorkflowOrchestrator:
                                          'overpass', api_calls, step_start)
                 return
 
-            # Build polygon
+            # Build polygon with expansion support enabled
             polygon_result = build_boundary_polygon(
                 osm_result.data.get('ways', []),
                 radius_bbox,
-                (lon, lat)  # Note: lon, lat order for GeoJSON
+                (lon, lat),  # Note: lon, lat order for GeoJSON
+                enable_expansion=self.config.enable_polygon_expansion
             )
 
             if polygon_result.success and polygon_result.data:
+                # Store expansion data for potential use in post-processing
+                if self.config.enable_polygon_expansion:
+                    self._boundary_expansion_data = polygon_result.data
+
                 self.state.data.boundary_polygon = PolygonData(
                     polygon=polygon_result.data.get('polygon'),
                     osm_ways_count=len(osm_result.data.get('ways', [])),
                     polygon_area_sq_degrees=polygon_result.data.get('polygon', {}).get('properties', {}).get('area_sq_degrees'),
-                    construction_method='intersection_based'
+                    construction_method='intersection_based',
+                    selected_polygon_idx=polygon_result.data.get('selected_polygon_idx'),
+                    total_polygons_found=polygon_result.data.get('total_polygons_found')
                 )
 
             self.state.complete_step(WorkflowStep.BOUNDARY_ANALYSIS, {
@@ -850,7 +864,12 @@ class NewRentalWorkflowOrchestrator:
     # =========================================================================
 
     def _execute_post_processing(self) -> None:
-        """Execute post-processing: filter addresses by polygon and calculate summaries."""
+        """Execute post-processing: filter addresses by polygon and calculate summaries.
+
+        Each data type (sales_data and each apartment comp type) is filtered independently.
+        If a filtered count is below the threshold, that specific data type's polygon
+        is expanded independently of others.
+        """
         step_start = time.time()
 
         # Check if polygon is available
@@ -859,26 +878,28 @@ class NewRentalWorkflowOrchestrator:
             self.state.skip_step(WorkflowStep.FORMATTED_OUTPUT, 'No polygon available', 'boundary_analysis')
             return
 
-        polygon = self.state.data.boundary_polygon.polygon
+        original_polygon = self.state.data.boundary_polygon.polygon
         formatted_output = FormattedOutput()
 
         try:
             # Build input property info from all collected data
             formatted_output.input_property = self._build_input_property_info()
 
-            # Filter and analyze sales data
+            # Filter and analyze sales data (with independent expansion)
             if self.state.data.sales_data and self.state.data.sales_data.sales:
-                formatted_output.sales_data = self._filter_and_analyze_sales(polygon)
-                logger.info(f"Sales data filtered: {formatted_output.sales_data.filtered_count}/{formatted_output.sales_data.original_count} within polygon")
+                formatted_output.sales_data = self._filter_sales_with_expansion(original_polygon)
+                logger.info(f"Sales data: {formatted_output.sales_data.filtered_count}/{formatted_output.sales_data.original_count} "
+                           f"(expanded: {formatted_output.sales_data.is_expanded})")
 
-            # Filter and analyze apartment comps (for each unit type)
+            # Filter and analyze apartment comps - EACH TYPE INDEPENDENTLY
             if self.state.data.apartment_comps:
                 formatted_output.apartment_comps = {}
                 for unit_key, comp_data in self.state.data.apartment_comps.items():
-                    filtered = self._filter_and_analyze_apartment_comp(polygon, unit_key, comp_data)
+                    filtered = self._filter_apartment_comp_with_expansion(original_polygon, unit_key, comp_data)
                     if filtered:
                         formatted_output.apartment_comps[unit_key] = filtered
-                        logger.info(f"Apartment comps {unit_key} filtered: {filtered.filtered_count}/{filtered.original_count} within polygon")
+                        logger.info(f"Apartment comps {unit_key}: {filtered.filtered_count}/{filtered.original_count} "
+                                   f"(expanded: {filtered.is_expanded})")
 
             self.state.data.formatted_output = formatted_output
             self.state.complete_step(WorkflowStep.FORMATTED_OUTPUT,
@@ -888,6 +909,163 @@ class NewRentalWorkflowOrchestrator:
         except Exception as e:
             logger.error(f"Post-processing error: {e}", exc_info=True)
             self.state.fail_step(WorkflowStep.FORMATTED_OUTPUT, str(e), ErrorCode.INTERNAL_ERROR, 0, step_start)
+
+    def _filter_sales_with_expansion(self, original_polygon: Dict) -> FilteredSalesData:
+        """
+        Filter sales data with independent expansion logic.
+
+        If filtered count < threshold and expansion is enabled, expands polygon
+        and re-filters. Returns result with polygon tracking info.
+        """
+        # First pass: filter against original polygon
+        filtered_result = self._filter_and_analyze_sales(original_polygon)
+
+        # Check if expansion is needed for THIS data type
+        if (self.config.enable_polygon_expansion and
+            filtered_result.filtered_count < self.config.min_data_for_analysis and
+            self._boundary_expansion_data is not None and
+            self._target_coords is not None):
+
+            logger.info(f"Sales data: {filtered_result.filtered_count} in polygon "
+                       f"(minimum: {self.config.min_data_for_analysis}), attempting expansion")
+
+            # Attempt expansion
+            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent()
+
+            if expanded_polygon and expansion_metadata:
+                # Re-filter with expanded polygon
+                filtered_result = self._filter_and_analyze_sales(expanded_polygon)
+                filtered_result.is_expanded = True
+                filtered_result.polygon_used = expanded_polygon
+                filtered_result.expansion_metadata = PolygonExpansionMetadata(
+                    original_area_sq_degrees=expansion_metadata.get('original_area_sq_degrees', 0),
+                    expanded_area_sq_degrees=expansion_metadata.get('expanded_area_sq_degrees', 0),
+                    expansion_tiers_used=expansion_metadata.get('expansion_tiers_used', 0),
+                    included_polygon_count=expansion_metadata.get('included_polygon_count', 1),
+                    included_polygon_indices=expansion_metadata.get('included_polygon_indices', []),
+                    expansion_reason='insufficient_sales_data'
+                )
+                logger.info(f"Sales data after expansion: {filtered_result.filtered_count} in expanded polygon")
+            else:
+                # No expansion occurred, use original polygon
+                filtered_result.is_expanded = False
+                filtered_result.polygon_used = original_polygon
+        else:
+            # No expansion needed or not enabled
+            filtered_result.is_expanded = False
+            filtered_result.polygon_used = original_polygon
+
+        return filtered_result
+
+    def _filter_apartment_comp_with_expansion(
+        self,
+        original_polygon: Dict,
+        unit_key: str,
+        comp_data: ApartmentCompData
+    ) -> Optional[FilteredApartmentData]:
+        """
+        Filter apartment comp data with independent expansion logic.
+
+        Each unit type is filtered and potentially expanded independently.
+        """
+        # First pass: filter against original polygon
+        filtered_result = self._filter_and_analyze_apartment_comp(original_polygon, unit_key, comp_data)
+
+        if filtered_result is None:
+            return None
+
+        # Check if expansion is needed for THIS unit type
+        if (self.config.enable_polygon_expansion and
+            filtered_result.filtered_count < self.config.min_data_for_analysis and
+            self._boundary_expansion_data is not None and
+            self._target_coords is not None):
+
+            logger.info(f"Apartment comps {unit_key}: {filtered_result.filtered_count} in polygon "
+                       f"(minimum: {self.config.min_data_for_analysis}), attempting expansion")
+
+            # Attempt expansion
+            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent()
+
+            if expanded_polygon and expansion_metadata:
+                # Re-filter with expanded polygon
+                filtered_result = self._filter_and_analyze_apartment_comp(expanded_polygon, unit_key, comp_data)
+                if filtered_result:
+                    filtered_result.is_expanded = True
+                    filtered_result.polygon_used = expanded_polygon
+                    filtered_result.expansion_metadata = PolygonExpansionMetadata(
+                        original_area_sq_degrees=expansion_metadata.get('original_area_sq_degrees', 0),
+                        expanded_area_sq_degrees=expansion_metadata.get('expanded_area_sq_degrees', 0),
+                        expansion_tiers_used=expansion_metadata.get('expansion_tiers_used', 0),
+                        included_polygon_count=expansion_metadata.get('included_polygon_count', 1),
+                        included_polygon_indices=expansion_metadata.get('included_polygon_indices', []),
+                        expansion_reason=f'insufficient_apartment_comps_{unit_key}'
+                    )
+                    logger.info(f"Apartment comps {unit_key} after expansion: {filtered_result.filtered_count}")
+            else:
+                # No expansion occurred
+                filtered_result.is_expanded = False
+                filtered_result.polygon_used = original_polygon
+        else:
+            # No expansion needed or not enabled
+            filtered_result.is_expanded = False
+            filtered_result.polygon_used = original_polygon
+
+        return filtered_result
+
+    def _try_expand_polygon_independent(self) -> Tuple[Optional[Dict], Optional[Dict]]:
+        """
+        Attempt to expand the polygon through soft boundaries.
+
+        This version does NOT modify the global state - it just returns the
+        expansion result for independent use by each data type.
+
+        Returns:
+            Tuple of (expanded_polygon_geojson, expansion_metadata_dict) or (None, None)
+        """
+        if not self._boundary_expansion_data or not self._target_coords:
+            return None, None
+
+        try:
+            expanded_result = expand_boundary_polygon(
+                self._boundary_expansion_data,
+                self._target_coords,
+                max_tiers=self.config.max_expansion_tiers
+            )
+
+            if not expanded_result.success or not expanded_result.data:
+                logger.warning(f"Polygon expansion failed: {expanded_result.error}")
+                return None, None
+
+            expansion_metadata = expanded_result.data.get('expansion_metadata', {})
+            is_expanded = expanded_result.data.get('is_expanded', False)
+
+            if not is_expanded:
+                logger.info("No expansion occurred (no soft-boundary neighbors)")
+                return None, None
+
+            expanded_polygon = expanded_result.data.get('polygon')
+            if expanded_polygon:
+                original_area = self.state.data.boundary_polygon.polygon_area_sq_degrees or 0
+                expanded_area = expansion_metadata.get('expanded_area_sq_degrees', 0)
+
+                # Return the expansion data without modifying global state
+                full_metadata = {
+                    'original_area_sq_degrees': original_area,
+                    'expanded_area_sq_degrees': expanded_area,
+                    'expansion_tiers_used': expansion_metadata.get('expansion_tiers_used', 0),
+                    'included_polygon_count': expansion_metadata.get('included_polygon_count', 1),
+                    'included_polygon_indices': expansion_metadata.get('included_polygon_indices', [])
+                }
+
+                logger.info(f"Polygon expansion available: {full_metadata['included_polygon_count']} polygons, "
+                           f"area {original_area:.6f} -> {expanded_area:.6f} sq degrees")
+                return expanded_polygon, full_metadata
+
+            return None, None
+
+        except Exception as e:
+            logger.error(f"Error during polygon expansion: {e}", exc_info=True)
+            return None, None
 
     def _build_input_property_info(self) -> InputPropertyInfo:
         """Build consolidated input property info from all workflow data."""

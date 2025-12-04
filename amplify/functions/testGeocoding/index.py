@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from propertyDataGather.functions.geocoding import get_coordinates, get_zip_bounding_box, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
-from propertyDataGather.functions.boundary_builder import build_boundary_polygon
+from propertyDataGather.functions.boundary_builder import build_boundary_polygon, expand_boundary_polygon
 from propertyDataGather.functions.address_checker import check_addresses_against_polygon
 from propertyDataGather.common.utils import validate_input, create_error_response
 from propertyDataGather.common.types import ErrorCode
@@ -143,6 +143,8 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
 
     Uses 2-mile radius around target address instead of full zip code bbox,
     parallel geocoding, and spatial indexing for improved performance.
+
+    Supports optional polygon expansion testing when test_expansion=true.
     """
     # Validate required fields for OSM boundary test
     validation = validate_input(input_data, ['target_address', 'test_addresses'])
@@ -156,8 +158,11 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
     target_address = input_data['target_address']
     test_addresses = input_data['test_addresses']
     radius_miles = input_data.get('radius_miles', 2.0)  # Allow override, default 2 miles
+    test_expansion = input_data.get('test_expansion', False)  # Enable expansion testing
+    max_expansion_tiers = input_data.get('max_expansion_tiers', 2)  # Expansion tiers
 
-    logger.info(f'OSM Boundary Test: target={target_address}, test_count={len(test_addresses)}, radius={radius_miles} miles')
+    logger.info(f'OSM Boundary Test: target={target_address}, test_count={len(test_addresses)}, '
+                f'radius={radius_miles} miles, expansion={test_expansion}')
 
     # Step 1: Geocode target address
     logger.info('Step 1: Geocoding target address')
@@ -232,12 +237,13 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
 
     logger.info(f'Fetched {osm_result.data["stats"]["total"]} OSM ways')
 
-    # Step 7: Build polygon boundary (now with spatial indexing)
-    logger.info('Step 7: Building polygon boundary with spatial indexing')
+    # Step 7: Build polygon boundary (with expansion support if enabled)
+    logger.info(f'Step 7: Building polygon boundary (expansion_enabled={test_expansion})')
     polygon_result = build_boundary_polygon(
         osm_result.data['ways'],
         radius_bbox,
-        (target_lon, target_lat)
+        (target_lon, target_lat),
+        enable_expansion=test_expansion
     )
 
     if not polygon_result.success:
@@ -250,8 +256,8 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
     selected_polygon = polygon_result.data['polygon']
     logger.info(f'Selected polygon from {polygon_result.data["total_polygons_found"]} candidates')
 
-    # Step 8: Test addresses against polygon
-    logger.info('Step 8: Testing addresses against polygon')
+    # Step 8: Test addresses against original polygon
+    logger.info('Step 8: Testing addresses against original polygon')
     check_result = check_addresses_against_polygon({
         'polygon': selected_polygon,
         'addresses': geocoded_test_addresses
@@ -263,6 +269,48 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
             'error': 'Failed to check addresses against polygon',
             'check_result': check_result.model_dump(exclude_none=True)
         }
+
+    # Step 9 (Optional): Test expansion if enabled
+    expansion_data = None
+    if test_expansion and polygon_result.data.get('_builder'):
+        logger.info(f'Step 9: Testing polygon expansion (max_tiers={max_expansion_tiers})')
+
+        expansion_result = expand_boundary_polygon(
+            polygon_result.data,
+            (target_lon, target_lat),
+            max_tiers=max_expansion_tiers
+        )
+
+        if expansion_result.success and expansion_result.data:
+            expanded_polygon = expansion_result.data.get('polygon')
+            expansion_metadata = expansion_result.data.get('expansion_metadata', {})
+            is_expanded = expansion_result.data.get('is_expanded', False)
+
+            # Test addresses against expanded polygon
+            expanded_check_result = None
+            if is_expanded and expanded_polygon:
+                expanded_check_result = check_addresses_against_polygon({
+                    'polygon': expanded_polygon,
+                    'addresses': geocoded_test_addresses
+                })
+
+            expansion_data = {
+                'is_expanded': is_expanded,
+                'expanded_polygon': expanded_polygon if is_expanded else None,
+                'expansion_metadata': expansion_metadata,
+                'expanded_classification': expanded_check_result.data if expanded_check_result and expanded_check_result.success else None
+            }
+
+            if is_expanded:
+                logger.info(f'Expansion result: {expansion_metadata.get("included_polygon_count", 1)} polygons merged')
+            else:
+                logger.info('No expansion occurred (no soft-boundary neighbors)')
+        else:
+            logger.warning(f'Expansion failed: {expansion_result.error}')
+            expansion_data = {
+                'is_expanded': False,
+                'error': expansion_result.error
+            }
 
     # Calculate total execution time
     execution_time_ms = int((time.time() - start_time) * 1000)
@@ -291,6 +339,7 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
         'selected_polygon': selected_polygon,
         'polygon_stats': {
             'total_polygons_found': polygon_result.data['total_polygons_found'],
+            'selected_polygon_idx': polygon_result.data.get('selected_polygon_idx'),
             'area_sq_km': selected_polygon['properties']['area_sq_km'],
             'num_vertices': selected_polygon['properties']['num_vertices']
         },
@@ -312,8 +361,13 @@ def handle_osm_boundary_test(input_data: Dict[str, Any], start_time: float) -> D
                 1    # OSM fetch call
             ),
             'test_addresses_count': len(test_addresses),
-            'geocoded_count': len(geocoded_test_addresses)
+            'geocoded_count': len(geocoded_test_addresses),
+            'expansion_enabled': test_expansion
         }
     }
+
+    # Add expansion data if testing was enabled
+    if expansion_data:
+        response['expansion'] = expansion_data
 
     return response

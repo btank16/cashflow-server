@@ -7,7 +7,9 @@ from typing import Dict, List, Any
 MILES_TO_DEGREES_LAT = 0.0144927536  # 1 mile ≈ 0.0145 degrees latitude
 DEFAULT_RADIUS_MILES = 2.0
 
-# OSM Way Types - All treated with equal priority
+# OSM Way Types - Used for Overpass API queries
+# Note: "_link" roads (ramps/connectors) are excluded - they're short and
+# don't create meaningful polygon boundaries
 OSM_WAY_TYPES: Dict[str, List[str]] = {
     "highways": [
         "motorway",
@@ -37,6 +39,116 @@ OSM_WAY_TYPES: Dict[str, List[str]] = {
         "ditch"
     ]
 }
+
+# =============================================================================
+# Boundary Classification for Polygon Expansion
+# =============================================================================
+# Hard boundaries: Never cross during polygon expansion (major roads, bbox edges)
+# Soft boundaries: Can expand through these (secondary roads, railways, waterways)
+
+HARD_BOUNDARY_TYPES: List[str] = [
+    # Major highways - act as neighborhood dividers
+    "motorway",
+    "trunk",
+    "primary",
+]
+
+SOFT_BOUNDARY_TYPES: List[str] = [
+    # Secondary roads - can expand through
+    "secondary",
+    # Railways - can expand through
+    "rail",
+    "light_rail",
+    "subway",
+    "tram",
+    "narrow_gauge",
+    "preserved",
+    "miniature",
+    "monorail",
+    "funicular",
+    # Waterways - can expand through
+    "river",
+    "stream",
+    "tidal_channel",
+    "canal",
+    "drain",
+    "ditch",
+]
+
+# Lookup dictionary for O(1) boundary classification
+WAY_BOUNDARY_CLASS: Dict[str, str] = {
+    # Hard boundaries
+    "motorway": "hard",
+    "trunk": "hard",
+    "primary": "hard",
+    # Soft boundaries - highways
+    "secondary": "soft",
+    # Soft boundaries - railways
+    "rail": "soft",
+    "light_rail": "soft",
+    "subway": "soft",
+    "tram": "soft",
+    "narrow_gauge": "soft",
+    "preserved": "soft",
+    "miniature": "soft",
+    "monorail": "soft",
+    "funicular": "soft",
+    # Soft boundaries - waterways
+    "river": "soft",
+    "stream": "soft",
+    "tidal_channel": "soft",
+    "canal": "soft",
+    "drain": "soft",
+    "ditch": "soft",
+}
+
+# Special boundary class for bounding box edges (always hard)
+BBOX_BOUNDARY_CLASS = "hard"
+
+
+def get_boundary_class(way_type: str) -> str:
+    """
+    Get the boundary classification for a way type.
+
+    Args:
+        way_type: OSM way type (e.g., "motorway", "secondary", "rail")
+
+    Returns:
+        "hard" or "soft" boundary classification
+
+    Example:
+        >>> get_boundary_class("motorway")
+        'hard'
+        >>> get_boundary_class("secondary")
+        'soft'
+    """
+    return WAY_BOUNDARY_CLASS.get(way_type, "soft")
+
+
+def is_hard_boundary(way_type: str) -> bool:
+    """
+    Check if a way type is a hard boundary (cannot expand through).
+
+    Args:
+        way_type: OSM way type
+
+    Returns:
+        True if hard boundary, False otherwise
+    """
+    return get_boundary_class(way_type) == "hard"
+
+
+def is_soft_boundary(way_type: str) -> bool:
+    """
+    Check if a way type is a soft boundary (can expand through).
+
+    Args:
+        way_type: OSM way type
+
+    Returns:
+        True if soft boundary, False otherwise
+    """
+    return get_boundary_class(way_type) == "soft"
 
 
 def build_overpass_query(bbox: List[float], way_types: Dict[str, List[str]] = None) -> str:

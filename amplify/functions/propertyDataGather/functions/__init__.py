@@ -75,6 +75,12 @@ from .address_checker import (
     check_addresses_against_polygon,
     batch_classify_addresses
 )
+from .boundary_builder import (
+    build_boundary_polygon,
+    expand_boundary_polygon,
+    BoundaryBuilder
+)
+from .osm_fetcher import fetch_osm_ways
 
 __all__ = [
     # County lookup
@@ -172,5 +178,11 @@ __all__ = [
     'SingleValueOutput',
     # Address checker
     'check_addresses_against_polygon',
-    'batch_classify_addresses'
+    'batch_classify_addresses',
+    # Boundary builder
+    'build_boundary_polygon',
+    'expand_boundary_polygon',
+    'BoundaryBuilder',
+    # OSM fetcher
+    'fetch_osm_ways'
 ]

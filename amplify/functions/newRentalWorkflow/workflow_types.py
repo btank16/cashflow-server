@@ -53,6 +53,10 @@ class WorkflowConfig(BaseModel):
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
     is_primary_residence: bool = False
+    # Polygon expansion settings
+    enable_polygon_expansion: bool = True
+    min_data_for_analysis: int = 5  # Minimum data points before expansion (applies to sales and each apartment comp type)
+    max_expansion_tiers: int = 2  # Maximum expansion iterations
 
 
 # =============================================================================
@@ -104,12 +108,27 @@ class BoundingBoxData(BaseModel):
     radius_miles: float
 
 
+class PolygonExpansionMetadata(BaseModel):
+    """Metadata about polygon expansion through soft boundaries."""
+    original_area_sq_degrees: float
+    expanded_area_sq_degrees: float
+    expansion_tiers_used: int
+    included_polygon_count: int
+    included_polygon_indices: List[int] = []
+    expansion_reason: Optional[str] = None  # e.g., "insufficient_sales_data"
+
+
 class PolygonData(BaseModel):
     """Boundary polygon data."""
     polygon: Optional[Dict[str, Any]] = None  # GeoJSON polygon
     osm_ways_count: int = 0
     polygon_area_sq_degrees: Optional[float] = None
     construction_method: Optional[str] = None
+    selected_polygon_idx: Optional[int] = None
+    total_polygons_found: Optional[int] = None
+    # Expansion fields
+    is_expanded: bool = False
+    expansion_metadata: Optional[PolygonExpansionMetadata] = None
 
 
 class InterestRateData(BaseModel):
@@ -254,6 +273,10 @@ class FilteredSalesData(BaseModel):
     filtered_count: int
     original_count: int
     price_summary: Optional[FiveNumberSummaryResult] = None
+    # Polygon tracking - each data type can have its own expanded polygon
+    is_expanded: bool = False
+    polygon_used: Optional[Dict[str, Any]] = None  # GeoJSON of polygon used for filtering
+    expansion_metadata: Optional[PolygonExpansionMetadata] = None
 
 
 class FilteredApartmentData(BaseModel):
@@ -263,6 +286,10 @@ class FilteredApartmentData(BaseModel):
     filtered_count: int
     original_count: int
     rent_summary: Optional[FiveNumberSummaryResult] = None
+    # Polygon tracking - each unit type can have its own expanded polygon
+    is_expanded: bool = False
+    polygon_used: Optional[Dict[str, Any]] = None  # GeoJSON of polygon used for filtering
+    expansion_metadata: Optional[PolygonExpansionMetadata] = None
 
 
 class FormattedOutput(BaseModel):
