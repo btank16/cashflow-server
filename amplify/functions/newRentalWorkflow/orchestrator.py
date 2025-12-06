@@ -58,7 +58,7 @@ from propertyDataGather.functions.rentcast_data import (
     get_rentcast_rental_listings,
     get_rentcast_sale_listings
 )
-from propertyDataGather.functions.property_details import get_initial_property_info
+from propertyDataGather.functions.gemini_property_details import get_initial_property_info_gemini
 from propertyDataGather.functions.property_tax import get_property_tax
 from propertyDataGather.functions.gemini_property_sales import get_recent_property_sales
 from propertyDataGather.functions.apartment_search import get_apartment_comps
@@ -349,9 +349,9 @@ class NewRentalWorkflowOrchestrator:
             if rentcast_result.success and rentcast_result.data.get('properties'):
                 return self._process_rentcast_property(rentcast_result.data['properties'][0], input_data, api_calls, step_start)
 
-            # Fallback to Perplexity
-            logger.info("Rentcast failed, falling back to Perplexity")
-            return self._execute_property_info_perplexity(input_data, api_calls, step_start)
+            # Fallback to Gemini
+            logger.info("Rentcast failed, falling back to Gemini")
+            return self._execute_property_info_gemini(input_data, api_calls, step_start)
 
         except Exception as e:
             logger.error(f"Property info error: {e}", exc_info=True)
@@ -364,8 +364,8 @@ class NewRentalWorkflowOrchestrator:
         property_type = property_data.get('propertyType')
 
         if not property_type:
-            logger.warning("Rentcast missing propertyType, falling back to Perplexity")
-            return self._execute_property_info_perplexity(input_data, api_calls, step_start)
+            logger.warning("Rentcast missing propertyType, falling back to Gemini")
+            return self._execute_property_info_gemini(input_data, api_calls, step_start)
 
         property_info = PropertyInfoData(
             source='rentcast',
@@ -402,19 +402,21 @@ class NewRentalWorkflowOrchestrator:
 
     def _get_multi_family_units(self, input_data: NewRentalWorkflowInput, property_info: PropertyInfoData,
                                  api_calls: int, step_start: float) -> Optional[List[Dict]]:
-        """Get unit breakdown for multi-family property via Perplexity."""
+        """Get unit breakdown for multi-family property via Gemini with grounded search."""
         county = self.state.data.geocoding.address.get('county', '') if self.state.data.geocoding else ''
         county_name = county.replace(' County', '') if county else input_data.city
 
-        unit_result = get_initial_property_info({
+        unit_result = get_initial_property_info_gemini({
             'street': input_data.street, 'city': input_data.city,
             'state': input_data.state, 'zip': input_data.zip, 'county_name': county_name
-        }, self.perplexity_client)
+        }, self.gemini_client)
         api_calls += 1
 
         if not unit_result.success or not unit_result.data:
-            self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Multi-family: failed to retrieve unit breakdown",
-                                 ErrorCode.MISSING_REQUIRED_FIELD, api_calls, step_start)
+            error_detail = unit_result.error or "No data returned"
+            logger.error(f"Multi-family unit breakdown failed: {error_detail}")
+            self.state.fail_step(WorkflowStep.PROPERTY_INFO, f"Multi-family: failed to retrieve unit breakdown - {error_detail}",
+                                 unit_result.error_code or ErrorCode.MISSING_REQUIRED_FIELD, api_calls, step_start)
             return None
 
         unit_beds = unit_result.data.get('unit_bed', [])
@@ -474,19 +476,19 @@ class NewRentalWorkflowOrchestrator:
         # Fallback to Perplexity for property tax
         self._execute_property_tax_perplexity(input_data)
 
-    def _execute_property_info_perplexity(self, input_data: NewRentalWorkflowInput,
-                                           prior_api_calls: int, step_start: float) -> Tuple[Optional[str], Optional[List[Dict]]]:
-        """Fallback to Perplexity for property info."""
+    def _execute_property_info_gemini(self, input_data: NewRentalWorkflowInput,
+                                        prior_api_calls: int, step_start: float) -> Tuple[Optional[str], Optional[List[Dict]]]:
+        """Fallback to Gemini for property info (with Perplexity for tax)."""
         county = self.state.data.geocoding.address.get('county', '') if self.state.data.geocoding else ''
         county_name = county.replace(' County', '') if county else input_data.city
         tax_year = datetime.now().year - 1
 
-        # Run property info and tax in parallel
+        # Run property info (Gemini) and tax (Perplexity) in parallel
         with ThreadPoolExecutor(max_workers=2) as executor:
-            details_future = executor.submit(get_initial_property_info, {
+            details_future = executor.submit(get_initial_property_info_gemini, {
                 'street': input_data.street, 'city': input_data.city,
                 'state': input_data.state, 'zip': input_data.zip, 'county_name': county_name
-            }, self.perplexity_client)
+            }, self.gemini_client)
 
             tax_future = executor.submit(get_property_tax, {
                 'street': input_data.street, 'city': input_data.city,
@@ -508,7 +510,7 @@ class NewRentalWorkflowOrchestrator:
                     property_type = "Multi-Family" if total_units > 1 else "Single Family"
 
                     property_info = PropertyInfoData(
-                        source='perplexity',
+                        source='gemini',
                         property_type=property_type,
                         bedrooms=sum(unit_beds),
                         bathrooms=sum(unit_baths),
@@ -523,15 +525,15 @@ class NewRentalWorkflowOrchestrator:
 
                     self.state.data.property_info = property_info
                     self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(),
-                                             'perplexity', prior_api_calls, step_start)
+                                             'gemini', prior_api_calls, step_start)
                 else:
-                    self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Perplexity returned incomplete data",
+                    self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Gemini returned incomplete data",
                                          ErrorCode.MISSING_REQUIRED_FIELD, prior_api_calls, step_start)
             else:
-                self.state.fail_step(WorkflowStep.PROPERTY_INFO, details_result.error or "Perplexity failed",
+                self.state.fail_step(WorkflowStep.PROPERTY_INFO, details_result.error or "Gemini failed",
                                      details_result.error_code or ErrorCode.API_ERROR, prior_api_calls, step_start)
 
-            # Handle tax result
+            # Handle tax result (still uses Perplexity)
             tax_result = tax_future.result()
             prior_api_calls += 1
 

@@ -154,8 +154,8 @@ class UnitData(BaseModel):
 
 
 class PropertyInfoData(BaseModel):
-    """Property information from Rentcast or Perplexity."""
-    source: str  # "rentcast" or "perplexity"
+    """Property information from Rentcast or Gemini."""
+    source: str  # "rentcast" or "gemini"
     property_type: Optional[str] = None
 
     # Rentcast-specific fields
