@@ -1317,7 +1317,9 @@ class NewRentalWorkflowOrchestrator:
                     if i in inside_indices or i in boundary_indices:
                         # Create a copy with rent_per_sqft calculated
                         entry_with_rpsf = self._calculate_rent_per_sqft(listing)
-                        filtered_entries.append(entry_with_rpsf)
+                        # Only include entries that have valid square footage for rent per sqft analysis
+                        if entry_with_rpsf.rent_per_sqft is not None:
+                            filtered_entries.append(entry_with_rpsf)
 
         # Calculate five-number summary for rent per square foot
         rent_per_sqft_values = []
