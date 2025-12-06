@@ -55,8 +55,9 @@ class WorkflowConfig(BaseModel):
     is_primary_residence: bool = False
     # Polygon expansion settings
     enable_polygon_expansion: bool = True
-    min_data_for_analysis: int = 5  # Minimum data points before expansion (applies to sales and each apartment comp type)
-    max_expansion_tiers: int = 2  # Maximum expansion iterations
+    min_data_for_analysis: int = 5  # Minimum data points before tier 1-2 expansion
+    max_expansion_tiers: int = 2  # Maximum tier 1-2 expansion iterations
+    min_data_for_tier_three: int = 2  # If ≤ this after tier 2, trigger tier 3 (crosses primary roads)
 
 
 # =============================================================================
@@ -116,6 +117,7 @@ class PolygonExpansionMetadata(BaseModel):
     included_polygon_count: int
     included_polygon_indices: List[int] = []
     expansion_reason: Optional[str] = None  # e.g., "insufficient_sales_data"
+    tier_three_triggered: bool = False  # True if tier 3 expansion (crossing primary roads) was used
 
 
 class PolygonData(BaseModel):
@@ -274,9 +276,7 @@ class FilteredSalesData(BaseModel):
     filtered_count: int
     original_count: int
     price_summary: Optional[FiveNumberSummaryResult] = None
-    # Polygon tracking - each data type can have its own expanded polygon
     is_expanded: bool = False
-    polygon_used: Optional[Dict[str, Any]] = None  # GeoJSON of polygon used for filtering
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
 
 
@@ -287,9 +287,7 @@ class FilteredApartmentData(BaseModel):
     filtered_count: int
     original_count: int
     rent_summary: Optional[FiveNumberSummaryResult] = None
-    # Polygon tracking - each unit type can have its own expanded polygon
     is_expanded: bool = False
-    polygon_used: Optional[Dict[str, Any]] = None  # GeoJSON of polygon used for filtering
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
 
 

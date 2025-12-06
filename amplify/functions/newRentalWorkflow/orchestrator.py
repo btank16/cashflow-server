@@ -917,7 +917,8 @@ class NewRentalWorkflowOrchestrator:
         Filter sales data with independent expansion logic.
 
         If filtered count < threshold and expansion is enabled, expands polygon
-        and re-filters. Returns result with polygon tracking info.
+        and re-filters. Supports tier 3 expansion through primary roads if data
+        is still insufficient after tier 1-2.
         """
         # First pass: filter against original polygon
         filtered_result = self._filter_and_analyze_sales(original_polygon)
@@ -929,33 +930,51 @@ class NewRentalWorkflowOrchestrator:
             self._target_coords is not None):
 
             logger.info(f"Sales data: {filtered_result.filtered_count} in polygon "
-                       f"(minimum: {self.config.min_data_for_analysis}), attempting expansion")
+                       f"(minimum: {self.config.min_data_for_analysis}), attempting tier 1-2 expansion")
 
-            # Attempt expansion
-            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent()
+            # Phase 1: Tier 1-2 expansion (soft boundaries only)
+            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent(
+                enable_tier_three=False
+            )
 
             if expanded_polygon and expansion_metadata:
-                # Re-filter with expanded polygon
+                # Re-filter with tier 1-2 expanded polygon
                 filtered_result = self._filter_and_analyze_sales(expanded_polygon)
                 filtered_result.is_expanded = True
-                filtered_result.polygon_used = expanded_polygon
+
+                # Phase 2: Check if tier 3 is needed
+                if filtered_result.filtered_count <= self.config.min_data_for_tier_three:
+                    logger.info(f"Sales data after tier 1-2: {filtered_result.filtered_count} "
+                               f"(<= {self.config.min_data_for_tier_three}), attempting tier 3 expansion")
+
+                    # Try tier 3 expansion (crosses primary roads)
+                    tier3_polygon, tier3_metadata = self._try_expand_polygon_independent(
+                        enable_tier_three=True,
+                        current_data_count=filtered_result.filtered_count
+                    )
+
+                    if tier3_polygon and tier3_metadata and tier3_metadata.get('tier_three_triggered'):
+                        # Re-filter with tier 3 expanded polygon
+                        filtered_result = self._filter_and_analyze_sales(tier3_polygon)
+                        expansion_metadata = tier3_metadata
+                        logger.info(f"Sales data after tier 3: {filtered_result.filtered_count}")
+
                 filtered_result.expansion_metadata = PolygonExpansionMetadata(
                     original_area_sq_degrees=expansion_metadata.get('original_area_sq_degrees', 0),
                     expanded_area_sq_degrees=expansion_metadata.get('expanded_area_sq_degrees', 0),
                     expansion_tiers_used=expansion_metadata.get('expansion_tiers_used', 0),
                     included_polygon_count=expansion_metadata.get('included_polygon_count', 1),
                     included_polygon_indices=expansion_metadata.get('included_polygon_indices', []),
-                    expansion_reason='insufficient_sales_data'
+                    expansion_reason='insufficient_sales_data',
+                    tier_three_triggered=expansion_metadata.get('tier_three_triggered', False)
                 )
                 logger.info(f"Sales data after expansion: {filtered_result.filtered_count} in expanded polygon")
             else:
-                # No expansion occurred, use original polygon
+                # No expansion occurred
                 filtered_result.is_expanded = False
-                filtered_result.polygon_used = original_polygon
         else:
             # No expansion needed or not enabled
             filtered_result.is_expanded = False
-            filtered_result.polygon_used = original_polygon
 
         return filtered_result
 
@@ -969,6 +988,8 @@ class NewRentalWorkflowOrchestrator:
         Filter apartment comp data with independent expansion logic.
 
         Each unit type is filtered and potentially expanded independently.
+        Supports tier 3 expansion through primary roads if data is still
+        insufficient after tier 1-2.
         """
         # First pass: filter against original polygon
         filtered_result = self._filter_and_analyze_apartment_comp(original_polygon, unit_key, comp_data)
@@ -983,43 +1004,72 @@ class NewRentalWorkflowOrchestrator:
             self._target_coords is not None):
 
             logger.info(f"Apartment comps {unit_key}: {filtered_result.filtered_count} in polygon "
-                       f"(minimum: {self.config.min_data_for_analysis}), attempting expansion")
+                       f"(minimum: {self.config.min_data_for_analysis}), attempting tier 1-2 expansion")
 
-            # Attempt expansion
-            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent()
+            # Phase 1: Tier 1-2 expansion (soft boundaries only)
+            expanded_polygon, expansion_metadata = self._try_expand_polygon_independent(
+                enable_tier_three=False
+            )
 
             if expanded_polygon and expansion_metadata:
-                # Re-filter with expanded polygon
+                # Re-filter with tier 1-2 expanded polygon
                 filtered_result = self._filter_and_analyze_apartment_comp(expanded_polygon, unit_key, comp_data)
                 if filtered_result:
                     filtered_result.is_expanded = True
-                    filtered_result.polygon_used = expanded_polygon
+
+                    # Phase 2: Check if tier 3 is needed
+                    if filtered_result.filtered_count <= self.config.min_data_for_tier_three:
+                        logger.info(f"Apartment comps {unit_key} after tier 1-2: {filtered_result.filtered_count} "
+                                   f"(<= {self.config.min_data_for_tier_three}), attempting tier 3 expansion")
+
+                        # Try tier 3 expansion (crosses primary roads)
+                        tier3_polygon, tier3_metadata = self._try_expand_polygon_independent(
+                            enable_tier_three=True,
+                            current_data_count=filtered_result.filtered_count
+                        )
+
+                        if tier3_polygon and tier3_metadata and tier3_metadata.get('tier_three_triggered'):
+                            # Re-filter with tier 3 expanded polygon
+                            tier3_result = self._filter_and_analyze_apartment_comp(tier3_polygon, unit_key, comp_data)
+                            if tier3_result:
+                                filtered_result = tier3_result
+                                filtered_result.is_expanded = True
+                                expansion_metadata = tier3_metadata
+                                logger.info(f"Apartment comps {unit_key} after tier 3: {filtered_result.filtered_count}")
+
                     filtered_result.expansion_metadata = PolygonExpansionMetadata(
                         original_area_sq_degrees=expansion_metadata.get('original_area_sq_degrees', 0),
                         expanded_area_sq_degrees=expansion_metadata.get('expanded_area_sq_degrees', 0),
                         expansion_tiers_used=expansion_metadata.get('expansion_tiers_used', 0),
                         included_polygon_count=expansion_metadata.get('included_polygon_count', 1),
                         included_polygon_indices=expansion_metadata.get('included_polygon_indices', []),
-                        expansion_reason=f'insufficient_apartment_comps_{unit_key}'
+                        expansion_reason=f'insufficient_apartment_comps_{unit_key}',
+                        tier_three_triggered=expansion_metadata.get('tier_three_triggered', False)
                     )
                     logger.info(f"Apartment comps {unit_key} after expansion: {filtered_result.filtered_count}")
             else:
                 # No expansion occurred
                 filtered_result.is_expanded = False
-                filtered_result.polygon_used = original_polygon
         else:
             # No expansion needed or not enabled
             filtered_result.is_expanded = False
-            filtered_result.polygon_used = original_polygon
 
         return filtered_result
 
-    def _try_expand_polygon_independent(self) -> Tuple[Optional[Dict], Optional[Dict]]:
+    def _try_expand_polygon_independent(
+        self,
+        enable_tier_three: bool = False,
+        current_data_count: int = 0
+    ) -> Tuple[Optional[Dict], Optional[Dict]]:
         """
         Attempt to expand the polygon through soft boundaries.
 
         This version does NOT modify the global state - it just returns the
         expansion result for independent use by each data type.
+
+        Args:
+            enable_tier_three: If True, allow tier 3 expansion through primary roads
+            current_data_count: Current filtered data count (used for tier 3 decision)
 
         Returns:
             Tuple of (expanded_polygon_geojson, expansion_metadata_dict) or (None, None)
@@ -1031,7 +1081,10 @@ class NewRentalWorkflowOrchestrator:
             expanded_result = expand_boundary_polygon(
                 self._boundary_expansion_data,
                 self._target_coords,
-                max_tiers=self.config.max_expansion_tiers
+                max_tiers=self.config.max_expansion_tiers,
+                enable_tier_three=enable_tier_three,
+                current_data_count=current_data_count,
+                min_data_for_tier_three=self.config.min_data_for_tier_three
             )
 
             if not expanded_result.success or not expanded_result.data:
@@ -1056,11 +1109,13 @@ class NewRentalWorkflowOrchestrator:
                     'expanded_area_sq_degrees': expanded_area,
                     'expansion_tiers_used': expansion_metadata.get('expansion_tiers_used', 0),
                     'included_polygon_count': expansion_metadata.get('included_polygon_count', 1),
-                    'included_polygon_indices': expansion_metadata.get('included_polygon_indices', [])
+                    'included_polygon_indices': expansion_metadata.get('included_polygon_indices', []),
+                    'tier_three_triggered': expansion_metadata.get('tier_three_triggered', False)
                 }
 
+                tier_info = " (tier 3 triggered)" if full_metadata['tier_three_triggered'] else ""
                 logger.info(f"Polygon expansion available: {full_metadata['included_polygon_count']} polygons, "
-                           f"area {original_area:.6f} -> {expanded_area:.6f} sq degrees")
+                           f"area {original_area:.6f} -> {expanded_area:.6f} sq degrees{tier_info}")
                 return expanded_polygon, full_metadata
 
             return None, None

@@ -44,12 +44,17 @@ OSM_WAY_TYPES: Dict[str, List[str]] = {
 # Boundary Classification for Polygon Expansion
 # =============================================================================
 # Hard boundaries: Never cross during polygon expansion (major roads, bbox edges)
+# Tier 3 boundaries: Only cross when data is insufficient (≤2 points after tier 2)
 # Soft boundaries: Can expand through these (secondary roads, railways, waterways)
 
 HARD_BOUNDARY_TYPES: List[str] = [
-    # Major highways - act as neighborhood dividers
+    # Major highways - act as neighborhood dividers (never cross)
     "motorway",
     "trunk",
+]
+
+TIER_THREE_BOUNDARY_TYPES: List[str] = [
+    # Primary roads - only cross in tier 3 when data is insufficient
     "primary",
 ]
 
@@ -77,10 +82,11 @@ SOFT_BOUNDARY_TYPES: List[str] = [
 
 # Lookup dictionary for O(1) boundary classification
 WAY_BOUNDARY_CLASS: Dict[str, str] = {
-    # Hard boundaries
+    # Hard boundaries (never cross)
     "motorway": "hard",
     "trunk": "hard",
-    "primary": "hard",
+    # Tier 3 boundaries (only cross when data insufficient)
+    "primary": "tier_three",
     # Soft boundaries - highways
     "secondary": "soft",
     # Soft boundaries - railways
@@ -149,6 +155,22 @@ def is_soft_boundary(way_type: str) -> bool:
         True if soft boundary, False otherwise
     """
     return get_boundary_class(way_type) == "soft"
+
+
+def is_tier_three_boundary(way_type: str) -> bool:
+    """
+    Check if a way type is a tier 3 boundary (can cross only when data insufficient).
+
+    Tier 3 boundaries (e.g., primary roads) are only crossed when the filtered
+    data count is ≤ min_data_for_tier_three after tier 1-2 expansion.
+
+    Args:
+        way_type: OSM way type
+
+    Returns:
+        True if tier 3 boundary, False otherwise
+    """
+    return get_boundary_class(way_type) == "tier_three"
 
 
 def build_overpass_query(bbox: List[float], way_types: Dict[str, List[str]] = None) -> str:

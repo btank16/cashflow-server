@@ -629,20 +629,27 @@ class BoundaryBuilder:
     def expand_through_soft_boundaries(
         self,
         selected_polygon_idx: int,
-        max_expansion_tiers: int = 2
+        max_expansion_tiers: int = 2,
+        enable_tier_three: bool = False,
+        current_data_count: int = 0,
+        min_data_for_tier_three: int = 2
     ) -> Tuple[Optional[Polygon], Dict[str, Any]]:
         """
         Expand a polygon by merging with adjacent polygons through soft boundaries.
 
         Args:
             selected_polygon_idx: Index of the starting polygon
-            max_expansion_tiers: Maximum number of expansion steps (default 2)
+            max_expansion_tiers: Maximum number of tier 1-2 expansion steps (default 2)
+            enable_tier_three: If True, allow tier 3 expansion through primary roads
+            current_data_count: Current filtered data count (used for tier 3 decision)
+            min_data_for_tier_three: Trigger tier 3 if data count <= this value (default 2)
 
         Returns:
             Tuple of (expanded_polygon, expansion_metadata)
 
-        Expansion only crosses soft boundaries (secondary roads, railways, waterways).
-        Hard boundaries (motorway, trunk, primary, bbox edges) are never crossed.
+        Tier 1-2: Crosses soft boundaries (secondary roads, railways, waterways).
+        Tier 3: Crosses primary roads (only if enable_tier_three=True and data insufficient).
+        Hard boundaries (motorway, trunk, bbox edges) are never crossed.
         """
         if not self.all_polygons:
             return None, {"error": "No polygons available for expansion"}
@@ -683,6 +690,33 @@ class BoundaryBuilder:
 
             logger.info(f"Expansion tier {tier + 1}: Added {len(candidates)} polygons")
 
+        # Tier 3: Expand through primary roads if enabled and data is insufficient
+        tier_three_triggered = False
+        if enable_tier_three and current_data_count <= min_data_for_tier_three:
+            logger.info(f"Tier 3: Data count ({current_data_count}) <= threshold ({min_data_for_tier_three}), "
+                        "attempting expansion through primary roads")
+
+            # Find polygons adjacent via tier_three boundaries (primary roads)
+            tier_three_candidates = set()
+            for idx in list(included):
+                for adj_idx, boundary_class in self.polygon_adjacency.get(idx, {}).items():
+                    if adj_idx not in included and boundary_class == "tier_three":
+                        tier_three_candidates.add(adj_idx)
+
+            if tier_three_candidates:
+                tier_three_triggered = True
+                for candidate in tier_three_candidates:
+                    included.add(candidate)
+                    expansion_log.append({
+                        "tier": 3,
+                        "added_polygon_idx": candidate,
+                        "added_polygon_area": self.all_polygons[candidate].area,
+                        "crossed_boundary": "primary"
+                    })
+                logger.info(f"Tier 3: Added {len(tier_three_candidates)} polygons via primary roads")
+            else:
+                logger.info("Tier 3: No primary-road neighbors available")
+
         # Merge all included polygons
         if len(included) == 1:
             expanded_polygon = original_polygon
@@ -702,7 +736,8 @@ class BoundaryBuilder:
             "included_polygon_count": len(included),
             "included_polygon_indices": list(included),
             "expansion_tiers_used": len(set(e["tier"] for e in expansion_log)) if expansion_log else 0,
-            "expansion_log": expansion_log
+            "expansion_log": expansion_log,
+            "tier_three_triggered": tier_three_triggered
         }
 
         return expanded_polygon, metadata
@@ -789,7 +824,10 @@ def build_boundary_polygon(
 def expand_boundary_polygon(
     boundary_result: Dict[str, Any],
     target_coords: Tuple[float, float],
-    max_tiers: int = 2
+    max_tiers: int = 2,
+    enable_tier_three: bool = False,
+    current_data_count: int = 0,
+    min_data_for_tier_three: int = 2
 ) -> FunctionResult[Dict[str, Any]]:
     """
     Expand a polygon result through soft boundaries.
@@ -797,7 +835,10 @@ def expand_boundary_polygon(
     Args:
         boundary_result: Result data from build_boundary_polygon(enable_expansion=True)
         target_coords: (longitude, latitude) of target address (for GeoJSON)
-        max_tiers: Maximum expansion tiers (default 2)
+        max_tiers: Maximum tier 1-2 expansion tiers (default 2)
+        enable_tier_three: If True, allow tier 3 expansion through primary roads
+        current_data_count: Current filtered data count (used for tier 3 decision)
+        min_data_for_tier_three: Trigger tier 3 if data count <= this value (default 2)
 
     Returns:
         FunctionResult with expanded polygon as GeoJSON
@@ -818,9 +859,13 @@ def expand_boundary_polygon(
                 ErrorCode.VALIDATION_ERROR
             )
 
-        # Perform expansion
+        # Perform expansion (with optional tier 3)
         expanded_polygon, expansion_metadata = builder.expand_through_soft_boundaries(
-            selected_idx, max_tiers
+            selected_idx,
+            max_tiers,
+            enable_tier_three=enable_tier_three,
+            current_data_count=current_data_count,
+            min_data_for_tier_three=min_data_for_tier_three
         )
 
         if expanded_polygon is None:
