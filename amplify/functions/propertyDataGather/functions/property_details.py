@@ -180,7 +180,7 @@ def get_initial_property_info(
         json_schema = InitialPropertyInfoOutput.model_json_schema()
 
         request = PerplexityRequest(
-            model='sonar',
+            model='sonar-pro',
             system_prompt=STANDARD_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             json_schema=json_schema

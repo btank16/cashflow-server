@@ -29,7 +29,12 @@ def validate_input(input_data: Dict[str, Any], required_fields: List[str]) -> Di
     """
     missing_fields = []
     for field in required_fields:
-        if field not in input_data or not input_data[field]:
+        if field not in input_data:
+            missing_fields.append(field)
+        elif input_data[field] is None:
+            missing_fields.append(field)
+        elif isinstance(input_data[field], str) and not input_data[field]:
+            # Empty strings are considered missing for string fields
             missing_fields.append(field)
 
     return {
