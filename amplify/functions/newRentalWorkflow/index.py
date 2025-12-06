@@ -91,6 +91,9 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     logger.info(f'New Rental Workflow started: {json.dumps(event)}')
     start_time = time.time()
 
+    # Detect GraphQL invocation early (before try block for error handling)
+    is_graphql = isinstance(event, dict) and 'arguments' in event
+
     try:
         # Parse the input
         if isinstance(event, str):
@@ -98,12 +101,24 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         else:
             input_data = event
 
+        # Unwrap arguments for GraphQL invocation
+        if is_graphql:
+            input_data = input_data['arguments']
+
         # Validate required address fields
         validation = validate_input(input_data, ['street', 'city', 'state', 'zip'])
         if not validation['is_valid']:
+            error_msg = f"Missing required address fields: {', '.join(validation['missing_fields'])}"
             logger.error(f"Validation failed: {validation['missing_fields']}")
+            if is_graphql:
+                return {
+                    "success": False,
+                    "formattedOutput": None,
+                    "metadata": None,
+                    "error": error_msg
+                }
             return create_error_response(
-                f"Missing required address fields: {', '.join(validation['missing_fields'])}",
+                error_msg,
                 ErrorCode.VALIDATION_ERROR
             ).model_dump(exclude_none=True)
 
@@ -119,15 +134,31 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         try:
             clients = get_all_api_clients_from_env()
         except ValueError as error:
+            error_msg = str(error)
             logger.error(f'Configuration error: {error}')
+            if is_graphql:
+                return {
+                    "success": False,
+                    "formattedOutput": None,
+                    "metadata": None,
+                    "error": error_msg
+                }
             return create_error_response(
-                str(error),
+                error_msg,
                 ErrorCode.CONFIG_ERROR
             ).model_dump(exclude_none=True)
         except Exception as error:
+            error_msg = f'Failed to initialize API clients: {str(error)}'
             logger.error(f'Failed to retrieve API clients: {error}', exc_info=True)
+            if is_graphql:
+                return {
+                    "success": False,
+                    "formattedOutput": None,
+                    "metadata": None,
+                    "error": error_msg
+                }
             return create_error_response(
-                f'Failed to initialize API clients: {str(error)}',
+                error_msg,
                 ErrorCode.CONFIG_ERROR
             ).model_dump(exclude_none=True)
 
@@ -157,13 +188,30 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             f'total_execution_time={total_time}ms'
         )
 
+        # Return trimmed response for GraphQL, full response for direct invocation
+        if is_graphql:
+            return {
+                "success": result.get("success", False),
+                "formattedOutput": result.get("formattedOutput"),
+                "metadata": result.get("metadata"),
+                "error": result.get("errors")
+            }
+
         return result
 
     except Exception as error:
+        error_msg = str(error)
         logger.error(f'Handler error: {error}', exc_info=True)
 
+        if is_graphql:
+            return {
+                "success": False,
+                "formattedOutput": None,
+                "metadata": None,
+                "error": error_msg
+            }
         return create_error_response(
-            str(error),
+            error_msg,
             ErrorCode.INTERNAL_ERROR
         ).model_dump(exclude_none=True)
 

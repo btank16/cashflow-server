@@ -1,6 +1,32 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
+import { newRentalWorkflow } from '../functions/newRentalWorkflow/resource_python';
 
 const schema = a.schema({
+  // =============================================================================
+  // Custom Query: New Rental Workflow
+  // =============================================================================
+
+  newRentalWorkflow: a
+    .query()
+    .arguments({
+      street: a.string().required(),
+      city: a.string().required(),
+      state: a.string().required(),
+      zip: a.string().required()
+    })
+    .returns(a.customType({
+      success: a.boolean(),
+      formattedOutput: a.json(),  // Contains input_property, sales_data, apartment_comps
+      metadata: a.json(),          // Contains total_api_calls, execution_time, step_details
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(newRentalWorkflow)),
+
+  // =============================================================================
+  // Data Models
+  // =============================================================================
+
   Calculation: a
     .model({
       user_id: a.string(),
