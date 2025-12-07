@@ -177,31 +177,17 @@ if result.success:
         print(f"  Median Price: ${stats['statistics']['median_price']:,.0f}")
 ```
 
-### Metro Area Lookup (Static Data)
+### City Validation
 
 ```python
-from propertyDataGather.functions import get_metro_area_info
+from propertyDataGather.functions import is_valid_city
 
-# Get all neighborhoods in Columbus
-result = get_metro_area_info({
-    'city': 'Columbus',
-    'lookup_type': 'city'
-})
+# Check if a city is in the supported metro areas
+if is_valid_city("Columbus"):
+    print("Columbus is a supported city")
 
-if result.success:
-    print(f"Neighborhoods: {result.data['neighborhoods']}")
-
-# Get full Ohio hierarchy
-result = get_metro_area_info({
-    'state_code': 'OH',
-    'lookup_type': 'hierarchy'
-})
-
-if result.success:
-    hierarchy = result.data['hierarchy']
-    print(f"State: {hierarchy['state']}")
-    for city_info in hierarchy['cities']:
-        print(f"  {city_info['city']}: {len(city_info['neighborhoods'])} neighborhoods")
+# Currently supports Ohio cities: Columbus, Cleveland, Cincinnati,
+# Dayton, Akron, Toledo, Canton, Youngstown, Parma, Lorain
 ```
 
 ### Rentcast Property Records
@@ -369,12 +355,12 @@ if result.success:
 - **API**: Apify actor `maxcopell/zillow-zip-search`
 - **Timeout**: 5 minutes
 
-### Metro Area Lookup
-- **Function**: `get_metro_area_info(input_data)`
-- **Input**: `{lookup_type, neighborhood?, city?, state_code?}`
-- **Output**: Varies by lookup_type
+### City Validation
+- **Function**: `is_valid_city(city)`
+- **Input**: City name string
+- **Output**: Boolean
 - **API Calls**: 0 (static data)
-- **Data**: Ohio cities and neighborhoods
+- **Data**: Supported Ohio cities
 
 ### Rentcast Property Records
 - **Function**: `get_rentcast_property_records(input_data, rentcast_client)`

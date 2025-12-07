@@ -18,7 +18,7 @@ Main Functions:
     - get_rentcast_property_records: Search property records (via Rentcast)
     - get_rentcast_rental_listings: Search rental listings (via Rentcast)
     - get_rentcast_market_stats: Get market statistics by ZIP (via Rentcast)
-    - get_metro_area_info: Static metro area data lookup
+    - is_valid_city: Check if a city is in the supported metro areas
 
 Usage:
     from propertyDataGather import get_county_name
