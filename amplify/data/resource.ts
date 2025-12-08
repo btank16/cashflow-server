@@ -21,7 +21,9 @@ const schema = a.schema({
       error: a.string()
     }))
     .authorization(allow => [allow.authenticated()])
-    .handler(a.handler.function(newRentalWorkflow)),
+    .handler(a.handler.function(newRentalWorkflow), {
+      requestTimeout: 540 // Match Lambda timeout (540 seconds = 9 minutes)
+    }),
 
   // =============================================================================
   // Data Models
