@@ -52,6 +52,10 @@ export const newRentalWorkflow = defineFunction(
     lambdaFunction.addEnvironment('GEMINI_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/GeminiAPI');
     lambdaFunction.addEnvironment('RENTCAST_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/RentCastAPI');
 
+    // Environment variable for WorkflowJob DynamoDB table (will be set by backend.ts)
+    // This is a placeholder - the actual table name will be injected during deployment
+    lambdaFunction.addEnvironment('WORKFLOW_JOB_TABLE_NAME', '');
+
     // Grant Lambda permission to read all required SSM parameters
     lambdaFunction.addToRolePolicy(
       new PolicyStatement({
@@ -60,6 +64,22 @@ export const newRentalWorkflow = defineFunction(
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`,
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/GeminiAPI`,
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/RentCastAPI`,
+        ],
+      })
+    );
+
+    // Grant Lambda permission to read/write WorkflowJob DynamoDB table
+    // Using wildcard since exact table name is generated at deploy time
+    lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:PutItem',
+          'dynamodb:UpdateItem',
+          'dynamodb:Query'
+        ],
+        resources: [
+          `arn:aws:dynamodb:*:*:table/*WorkflowJob*`,
         ],
       })
     );

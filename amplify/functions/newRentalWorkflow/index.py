@@ -1,17 +1,23 @@
 """
 New Rental Workflow Lambda Handler
 Entry point for the new rental property data gathering workflow using ThreadPoolExecutor.
+Supports both synchronous (GraphQL) and asynchronous (job-based) invocation.
 """
 
 import json
 import logging
+import os
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Callable
+from datetime import datetime
 
 # Lambda automatically sets /var/task/ in sys.path, but we ensure it's there
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
+
+import boto3
+from botocore.exceptions import ClientError
 
 from propertyDataGather.common.utils import (
     validate_input,
@@ -26,10 +32,73 @@ from workflow_types import WorkflowConfig
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# DynamoDB client for job status updates
+dynamodb = boto3.resource('dynamodb')
+WORKFLOW_JOB_TABLE = os.environ.get('WORKFLOW_JOB_TABLE_NAME', '')
+
+
+def update_job_status(
+    job_id: str,
+    status: str,
+    current_step: Optional[str] = None,
+    completed_steps: Optional[list] = None,
+    result: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+    error: Optional[str] = None
+) -> None:
+    """Update the job status in DynamoDB."""
+    if not WORKFLOW_JOB_TABLE or not job_id:
+        logger.warning('No job table or job ID, skipping status update')
+        return
+
+    try:
+        table = dynamodb.Table(WORKFLOW_JOB_TABLE)
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        update_expr = 'SET #status = :status, updated_at = :updated_at'
+        expr_names = {'#status': 'status'}
+        expr_values = {':status': status, ':updated_at': now}
+
+        if current_step is not None:
+            update_expr += ', current_step = :current_step'
+            expr_values[':current_step'] = current_step
+
+        if completed_steps is not None:
+            update_expr += ', completed_steps = :completed_steps'
+            expr_values[':completed_steps'] = completed_steps
+
+        if result is not None:
+            update_expr += ', #result = :result'
+            expr_names['#result'] = 'result'
+            expr_values[':result'] = result
+
+        if metadata is not None:
+            update_expr += ', metadata = :metadata'
+            expr_values[':metadata'] = metadata
+
+        if error is not None:
+            update_expr += ', #error = :error'
+            expr_names['#error'] = 'error'
+            expr_values[':error'] = error
+
+        table.update_item(
+            Key={'id': job_id},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_names,
+            ExpressionAttributeValues=expr_values
+        )
+        logger.info(f'Job {job_id} status updated: {status}, step: {current_step}')
+
+    except ClientError as e:
+        logger.error(f'Failed to update job status: {e}')
+    except Exception as e:
+        logger.error(f'Unexpected error updating job status: {e}')
+
 
 def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     """
     Lambda handler function.
+    Supports both synchronous (GraphQL) and asynchronous (job-based) invocation.
 
     Args:
         event: The input event containing address information
@@ -39,60 +108,35 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
                 - state: State name or abbreviation
                 - zip: 5-digit ZIP code
             Optional fields:
+                - jobId: Job ID for async invocation (updates DynamoDB with progress)
+                - userId: User ID for async invocation
                 - config: Configuration overrides
-                    - default_down_payment: Down payment percentage (default: 20.0)
-                    - default_loan_type: Loan type (default: "30-year fixed")
-                    - sales_time_period: Sales lookup period (default: "6 months")
-                    - sqft_tolerance_percent: Sq ft tolerance for rentals (default: 0.10)
-                    - search_radius_miles: Search radius (default: 2.0)
         _context: Lambda context object (unused)
 
     Returns:
         The workflow output with all gathered property data or error response
-
-    Example input:
-        {
-            "street": "2179 West 106th Street",
-            "city": "Cleveland",
-            "state": "OH",
-            "zip": "44102",
-            "config": {
-                "default_down_payment": 25.0,
-                "sales_time_period": "3 months"
-            }
-        }
-
-    Example output:
-        {
-            "success": true,
-            "completed_steps": ["validation", "interest_rate", "boundary_analysis", ...],
-            "failed_steps": [],
-            "data": {
-                "address": {...},
-                "geocoding": {...},
-                "interest_rate": {...},
-                "bounding_boxes": {...},
-                "boundary_polygon": {...},
-                "property_info": {...},
-                "property_tax": {...},
-                "sales_data": {...},
-                "apartment_comps": {...}
-            },
-            "metadata": {
-                "total_api_calls": 15,
-                "total_execution_time": 45.2,
-                "workflow_start_time": "2025-01-15T10:30:00.000Z",
-                "workflow_end_time": "2025-01-15T10:30:45.200Z",
-                "step_details": [...]
-            },
-            "errors": null
-        }
     """
     logger.info(f'New Rental Workflow started: {json.dumps(event)}')
     start_time = time.time()
 
-    # Detect GraphQL invocation early (before try block for error handling)
-    is_graphql = isinstance(event, dict) and 'arguments' in event
+    # Detect invocation type
+    is_graphql = isinstance(event, dict) and 'arguments' in event and 'jobId' not in event
+    is_async_job = isinstance(event, dict) and 'jobId' in event
+
+    # Extract job ID for async invocation
+    job_id = event.get('jobId') if is_async_job else None
+    completed_steps = []
+
+    # Progress callback for async jobs
+    def on_step_complete(step_name: str):
+        if job_id:
+            completed_steps.append(step_name)
+            update_job_status(
+                job_id=job_id,
+                status='processing',
+                current_step=step_name,
+                completed_steps=completed_steps
+            )
 
     try:
         # Parse the input
@@ -101,9 +145,19 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         else:
             input_data = event
 
-        # Unwrap arguments for GraphQL invocation
+        # Unwrap arguments for GraphQL or async invocation
         if is_graphql:
             input_data = input_data['arguments']
+        elif is_async_job and 'arguments' in input_data:
+            input_data = input_data['arguments']
+
+        # Update job status to processing
+        if job_id:
+            update_job_status(
+                job_id=job_id,
+                status='processing',
+                current_step='initializing'
+            )
 
         # Validate required address fields
         validation = validate_input(input_data, ['street', 'city', 'state', 'zip'])
@@ -188,13 +242,30 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
             f'total_execution_time={total_time}ms'
         )
 
+        # For async jobs, update DynamoDB with final result
+        if job_id:
+            final_status = 'completed' if result.get('success') else 'failed'
+            # Extract formatted output for the result field
+            formatted_output = result.get('data', {}).get('formatted_output')
+            update_job_status(
+                job_id=job_id,
+                status=final_status,
+                current_step='complete',
+                completed_steps=result.get('completed_steps', []),
+                result=formatted_output,
+                metadata=result.get('metadata'),
+                error=json.dumps(result.get('errors')) if result.get('errors') else None
+            )
+            # Async invocation doesn't need to return anything meaningful
+            return {'success': True, 'jobId': job_id}
+
         # Return trimmed response for GraphQL, full response for direct invocation
         if is_graphql:
             return {
                 "success": result.get("success", False),
-                "formattedOutput": result.get("formattedOutput"),
+                "formattedOutput": result.get("data", {}).get("formatted_output"),
                 "metadata": result.get("metadata"),
-                "error": result.get("errors")
+                "error": json.dumps(result.get("errors")) if result.get("errors") else None
             }
 
         return result
@@ -202,6 +273,16 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
     except Exception as error:
         error_msg = str(error)
         logger.error(f'Handler error: {error}', exc_info=True)
+
+        # For async jobs, update DynamoDB with error
+        if job_id:
+            update_job_status(
+                job_id=job_id,
+                status='failed',
+                current_step='error',
+                error=error_msg
+            )
+            return {'success': False, 'jobId': job_id, 'error': error_msg}
 
         if is_graphql:
             return {
