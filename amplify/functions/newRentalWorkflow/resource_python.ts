@@ -85,5 +85,8 @@ export const newRentalWorkflow = defineFunction(
     );
 
     return lambdaFunction;
+  },
+  {
+    resourceGroupName: 'data'
   }
 );
