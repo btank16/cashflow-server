@@ -88,17 +88,30 @@ export const handler = async (
 
     console.log('Job found:', {
       status: job.status,
-      currentStep: job.current_step,
-      completedSteps: job.completed_steps
+      currentStep: job.current_step
     });
+
+    // Parse JSON strings from DynamoDB back to objects for AppSync
+    // a.json() fields are stored as JSON strings in DynamoDB
+    const parseJsonField = (field: any) => {
+      if (!field) return null;
+      if (typeof field === 'string') {
+        try {
+          return JSON.parse(field);
+        } catch {
+          return field;
+        }
+      }
+      return field;
+    };
 
     return {
       jobId: job.id,
       status: job.status,
       currentStep: job.current_step,
-      completedSteps: job.completed_steps || [],
-      result: job.result,
-      metadata: job.metadata,
+      completedSteps: parseJsonField(job.completed_steps) || [],
+      result: parseJsonField(job.result),
+      metadata: parseJsonField(job.metadata),
       error: job.error
     };
 

@@ -68,14 +68,15 @@ export const handler = async (
 
     // Create job record in DynamoDB
     // Note: 'owner' field is required for Amplify's owner-based authorization
+    // a.json() fields must be stored as JSON strings for AppSync compatibility
     const jobRecord = {
       id: jobId,
       owner: userId,  // Required for allow.owner() authorization
       user_id: userId,
       status: 'pending',
       current_step: 'queued',
-      completed_steps: [],
-      input: { street, city, state, zip },
+      completed_steps: JSON.stringify([]),
+      input: JSON.stringify({ street, city, state, zip }),
       result: null,
       metadata: null,
       error: null,

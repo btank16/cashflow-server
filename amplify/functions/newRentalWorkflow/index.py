@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import time
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 # Lambda automatically sets /var/task/ in sys.path, but we ensure it's there
@@ -65,16 +65,19 @@ def update_job_status(
 
         if completed_steps is not None:
             update_expr += ', completed_steps = :completed_steps'
-            expr_values[':completed_steps'] = completed_steps
+            # a.json() fields must be stored as JSON strings
+            expr_values[':completed_steps'] = json.dumps(completed_steps)
 
         if result is not None:
             update_expr += ', #result = :result'
             expr_names['#result'] = 'result'
-            expr_values[':result'] = result
+            # a.json() fields must be stored as JSON strings
+            expr_values[':result'] = json.dumps(result) if not isinstance(result, str) else result
 
         if metadata is not None:
             update_expr += ', metadata = :metadata'
-            expr_values[':metadata'] = metadata
+            # a.json() fields must be stored as JSON strings
+            expr_values[':metadata'] = json.dumps(metadata) if not isinstance(metadata, str) else metadata
 
         if error is not None:
             update_expr += ', #error = :error'
@@ -225,12 +228,16 @@ def handler(event: Dict[str, Any], _context: Any) -> Dict[str, Any]:
         )
 
         # Execute the workflow (synchronous with ThreadPoolExecutor)
-        result = orchestrator.execute({
-            'street': input_data['street'],
-            'city': input_data['city'],
-            'state': input_data['state'],
-            'zip': input_data['zip']
-        })
+        # Pass the progress callback for async jobs to update DynamoDB
+        result = orchestrator.execute(
+            {
+                'street': input_data['street'],
+                'city': input_data['city'],
+                'state': input_data['state'],
+                'zip': input_data['zip']
+            },
+            on_step_complete=on_step_complete if job_id else None
+        )
 
         # Log execution summary
         total_time = int((time.time() - start_time) * 1000)

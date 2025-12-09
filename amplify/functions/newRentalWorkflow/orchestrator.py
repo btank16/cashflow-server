@@ -97,9 +97,32 @@ class NewRentalWorkflowOrchestrator:
         # Store boundary expansion data for potential use in post-processing
         self._boundary_expansion_data: Optional[Dict[str, Any]] = None
         self._target_coords: Optional[Tuple[float, float]] = None
+        # Callback for step completion notifications (used for async job updates)
+        self._on_step_complete: Optional[Callable[[str], None]] = None
 
-    def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the complete workflow."""
+    def _notify_step_complete(self, step_name: str) -> None:
+        """Notify external listener of step completion."""
+        if self._on_step_complete:
+            try:
+                self._on_step_complete(step_name)
+            except Exception as e:
+                logger.warning(f"Step notification failed for {step_name}: {e}")
+
+    def execute(
+        self,
+        input_data: Dict[str, Any],
+        on_step_complete: Optional[Callable[[str], None]] = None
+    ) -> Dict[str, Any]:
+        """Execute the complete workflow.
+
+        Args:
+            input_data: Address data with street, city, state, zip
+            on_step_complete: Optional callback called after each step completes.
+                              Receives the step name as a string.
+        """
+        # Store callback for use in step methods
+        self._on_step_complete = on_step_complete
+
         workflow_start_time = datetime.utcnow().isoformat() + "Z"
         start_time = time.time()
 
@@ -198,6 +221,7 @@ class NewRentalWorkflowOrchestrator:
 
             self.state.complete_step(WorkflowStep.VALIDATION, {'lat': lat, 'lon': lon, 'type': address_type},
                                      'nominatim', 1, step_start)
+            self._notify_step_complete('validation')
             return {'lat': lat, 'lon': lon}
 
         except Exception as e:
@@ -228,6 +252,7 @@ class NewRentalWorkflowOrchestrator:
                     down_payment=self.config.default_down_payment
                 )
                 self.state.complete_step(WorkflowStep.INTEREST_RATE, result.data, 'perplexity', 1, step_start)
+                self._notify_step_complete('interest_rate')
             else:
                 self.state.fail_step(WorkflowStep.INTEREST_RATE, result.error or "Failed to get interest rate",
                                      result.error_code or ErrorCode.API_ERROR, 1, step_start)
@@ -294,6 +319,7 @@ class NewRentalWorkflowOrchestrator:
                 'bounding_boxes': self.state.data.bounding_boxes.model_dump() if self.state.data.bounding_boxes else None,
                 'polygon': self.state.data.boundary_polygon.model_dump() if self.state.data.boundary_polygon else None
             }, 'overpass', api_calls, step_start)
+            self._notify_step_complete('boundary_analysis')
 
         except Exception as e:
             logger.error(f"Boundary analysis error: {e}", exc_info=True)
@@ -398,6 +424,7 @@ class NewRentalWorkflowOrchestrator:
 
         self.state.data.property_info = property_info
         self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(), 'rentcast', api_calls, step_start)
+        self._notify_step_complete('property_info')
         return property_type, unit_data
 
     def _get_multi_family_units(self, input_data: NewRentalWorkflowInput, property_info: PropertyInfoData,
@@ -471,6 +498,7 @@ class NewRentalWorkflowOrchestrator:
                 self.state.complete_step(WorkflowStep.PROPERTY_TAX,
                                          {'annual_taxes': sorted_taxes[0]['total'], 'year': sorted_taxes[0].get('year')},
                                          'rentcast', 0, time.time())
+                self._notify_step_complete('property_tax')
                 return
 
         # Fallback to Perplexity for property tax
@@ -526,6 +554,7 @@ class NewRentalWorkflowOrchestrator:
                     self.state.data.property_info = property_info
                     self.state.complete_step(WorkflowStep.PROPERTY_INFO, property_info.model_dump(),
                                              'gemini', prior_api_calls, step_start)
+                    self._notify_step_complete('property_info')
                 else:
                     self.state.fail_step(WorkflowStep.PROPERTY_INFO, "Gemini returned incomplete data",
                                          ErrorCode.MISSING_REQUIRED_FIELD, prior_api_calls, step_start)
@@ -544,6 +573,7 @@ class NewRentalWorkflowOrchestrator:
                     source='perplexity'
                 )
                 self.state.complete_step(WorkflowStep.PROPERTY_TAX, tax_result.data, 'perplexity', 1, time.time())
+                self._notify_step_complete('property_tax')
             else:
                 self.state.fail_step(WorkflowStep.PROPERTY_TAX, tax_result.error or "Failed to get property tax",
                                      tax_result.error_code or ErrorCode.API_ERROR, 1, time.time())
@@ -568,6 +598,7 @@ class NewRentalWorkflowOrchestrator:
                     source='perplexity'
                 )
                 self.state.complete_step(WorkflowStep.PROPERTY_TAX, result.data, 'perplexity', 1, step_start)
+                self._notify_step_complete('property_tax')
             else:
                 self.state.fail_step(WorkflowStep.PROPERTY_TAX, result.error or "No annual_taxes returned",
                                      result.error_code or ErrorCode.MISSING_REQUIRED_FIELD, 1, step_start)
@@ -599,6 +630,7 @@ class NewRentalWorkflowOrchestrator:
                 api_calls += len(gemini_result.data.get('addresses', []))
                 self.state.data.sales_data = sales_data
                 self.state.complete_step(WorkflowStep.SALES_DATA, sales_data.model_dump(), 'gemini', api_calls, step_start)
+                self._notify_step_complete('sales_data')
                 return
 
             # Fallback to Rentcast
@@ -614,6 +646,7 @@ class NewRentalWorkflowOrchestrator:
                 sales_data = self._process_rentcast_sales(rentcast_result.data['listings'])
                 self.state.data.sales_data = sales_data
                 self.state.complete_step(WorkflowStep.SALES_DATA, sales_data.model_dump(), 'rentcast', api_calls, step_start)
+                self._notify_step_complete('sales_data')
             else:
                 self.state.fail_step(WorkflowStep.SALES_DATA, "No sales data found",
                                      ErrorCode.NO_DATA, api_calls, step_start)
@@ -785,6 +818,7 @@ class NewRentalWorkflowOrchestrator:
             if rentcast_result.success and rentcast_result.data.get('listings'):
                 comp_data = self._process_rentcast_comps(rentcast_result.data['listings'], beds, baths, sqft)
                 self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'rentcast', api_calls, step_start)
+                self._notify_step_complete(f'apartment_comps_{unit_key}')
                 return comp_data
 
             # Fallback to Perplexity
@@ -851,6 +885,7 @@ class NewRentalWorkflowOrchestrator:
                 comp_data = ApartmentCompData(source='perplexity', unit_beds=beds, unit_baths=baths,
                                               unit_sqft=sqft, listings=entries, total_count=len(entries))
                 self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'perplexity', api_calls, step_start)
+                self._notify_step_complete(f'apartment_comps_{unit_key}')
                 return comp_data
 
             self.state.fail_apartment_comp(unit_key, "No apartment comps found", ErrorCode.NO_DATA, api_calls, step_start)
@@ -907,6 +942,7 @@ class NewRentalWorkflowOrchestrator:
             self.state.complete_step(WorkflowStep.FORMATTED_OUTPUT,
                                      formatted_output.model_dump(),
                                      'internal', 0, step_start)
+            self._notify_step_complete('formatted_output')
 
         except Exception as e:
             logger.error(f"Post-processing error: {e}", exc_info=True)
