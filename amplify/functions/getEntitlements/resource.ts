@@ -5,5 +5,6 @@ export const getEntitlements = defineFunction({
   entry: './handler.ts',
   timeoutSeconds: 10,
   runtime: 22,
-  memoryMB: 128
+  memoryMB: 128,
+  resourceGroupName: 'data'
 });
