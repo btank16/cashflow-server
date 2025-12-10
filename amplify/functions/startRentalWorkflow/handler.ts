@@ -3,6 +3,12 @@ import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { randomUUID } from 'crypto';
 import type { AppSyncResolverEvent } from 'aws-lambda';
+import {
+  checkResidentAIAccess,
+  extractCognitoGroups,
+  getUserEntitlements,
+} from '../shared/authorization';
+import { checkAndIncrementUsage } from '../shared/usage';
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -11,12 +17,14 @@ const lambdaClient = new LambdaClient({});
 // Environment variables set by backend.ts
 const WORKFLOW_JOB_TABLE = process.env.WORKFLOW_JOB_TABLE_NAME || '';
 const WORKFLOW_LAMBDA_NAME = process.env.WORKFLOW_LAMBDA_NAME || '';
+const USAGE_TABLE_NAME = process.env.USAGE_TABLE_NAME || '';
 
 interface StartWorkflowArgs {
   street: string;
   city: string;
   state: string;
   zip: string;
+  timezone?: string;
 }
 
 interface StartWorkflowResponse {
@@ -34,7 +42,7 @@ export const handler = async (
   console.log('startRentalWorkflow invoked');
 
   try {
-    const { street, city, state, zip } = event.arguments;
+    const { street, city, state, zip, timezone = 'UTC' } = event.arguments;
 
     // Security: Require authenticated user - no anonymous fallback
     const userId = (event.identity as any)?.sub ||
@@ -61,6 +69,56 @@ export const handler = async (
         error: 'Input exceeds maximum allowed length'
       };
     }
+
+    // =========================================================================
+    // Access Control: Check feature access and usage limits
+    // =========================================================================
+    const cognitoGroups = extractCognitoGroups(event.identity);
+    console.log('User groups:', cognitoGroups);
+
+    // 1. Check feature access (is user in beta or higher tier?)
+    const accessCheck = checkResidentAIAccess(cognitoGroups);
+    if (!accessCheck.allowed) {
+      console.log('Access denied:', accessCheck.reason);
+      return {
+        jobId: null,
+        status: 'access_denied',
+        error: accessCheck.reason || 'You do not have access to resident-AI. Contact us for beta access.'
+      };
+    }
+
+    // 2. Check and increment usage (atomic operation)
+    const entitlements = getUserEntitlements(cognitoGroups);
+    console.log('User entitlements:', {
+      tier: entitlements.tier,
+      dailyLimit: entitlements.dailyLimit,
+      timezone
+    });
+
+    const usageCheck = await checkAndIncrementUsage(
+      USAGE_TABLE_NAME,
+      userId,
+      'resident-ai',
+      timezone,
+      entitlements
+    );
+
+    if (!usageCheck.success) {
+      console.log('Usage limit reached:', usageCheck.error);
+      return {
+        jobId: null,
+        status: 'limit_reached',
+        error: usageCheck.error || 'Daily limit reached. Your limit resets at midnight.'
+      };
+    }
+
+    console.log('Access granted, usage incremented:', {
+      tier: entitlements.tier,
+      dailyUsed: usageCheck.usage.dailyUsed,
+      dailyLimit: usageCheck.usage.dailyLimit,
+      dailyRemaining: usageCheck.usage.dailyRemaining
+    });
+    // =========================================================================
 
     // Generate unique job ID using Node.js native crypto (no external dependency)
     const jobId = randomUUID();

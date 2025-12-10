@@ -76,7 +76,7 @@ export const auth = defineAuth({
     },
   },
   // User groups
-  groups: ["basic", "premium"],
+  groups: ["basic", "premium", "platinum", "beta", "admin"],
   triggers: {
     postConfirmation,
   },

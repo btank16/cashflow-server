@@ -5,6 +5,8 @@ import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
 import { testGeocoding } from './functions/testGeocoding/resource_python';
+import { adminBetaAccess } from './functions/adminBetaAccess/resource';
+import { getEntitlements } from './functions/getEntitlements/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
 
@@ -17,26 +19,42 @@ const backend = defineBackend({
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
-  testGeocoding
+  testGeocoding,
+  adminBetaAccess,
+  getEntitlements
 });
 
-// Get the WorkflowJob table from the data stack
+// =============================================================================
+// Table References
+// =============================================================================
 const workflowJobTable = backend.data.resources.tables['WorkflowJob'];
+const usageRecordTable = backend.data.resources.tables['UsageRecord'];
 const workflowJobTableName = workflowJobTable.tableName;
+const usageRecordTableName = usageRecordTable.tableName;
 
-// Get the newRentalWorkflow Lambda function (cast to Function for full API access)
+// =============================================================================
+// Lambda Function References
+// =============================================================================
 const newRentalWorkflowLambda = backend.newRentalWorkflow.resources.lambda as Function;
+const startRentalWorkflowLambda = backend.startRentalWorkflow.resources.lambda as Function;
+const getRentalWorkflowStatusLambda = backend.getRentalWorkflowStatus.resources.lambda as Function;
+const adminBetaAccessLambda = backend.adminBetaAccess.resources.lambda as Function;
+const getEntitlementsLambda = backend.getEntitlements.resources.lambda as Function;
+
 const newRentalWorkflowFunctionName = newRentalWorkflowLambda.functionName;
 
-// Configure startRentalWorkflow Lambda
-const startRentalWorkflowLambda = backend.startRentalWorkflow.resources.lambda as Function;
+// =============================================================================
+// startRentalWorkflow Configuration
+// =============================================================================
 startRentalWorkflowLambda.addEnvironment('WORKFLOW_JOB_TABLE_NAME', workflowJobTableName);
 startRentalWorkflowLambda.addEnvironment('WORKFLOW_LAMBDA_NAME', newRentalWorkflowFunctionName);
+startRentalWorkflowLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
 
-// Grant startRentalWorkflow permission to write to DynamoDB
+// Grant DynamoDB permissions
 workflowJobTable.grantWriteData(startRentalWorkflowLambda);
+usageRecordTable.grantReadWriteData(startRentalWorkflowLambda);
 
-// Grant startRentalWorkflow permission to invoke newRentalWorkflow Lambda
+// Grant permission to invoke newRentalWorkflow Lambda
 startRentalWorkflowLambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['lambda:InvokeFunction'],
@@ -44,15 +62,42 @@ startRentalWorkflowLambda.addToRolePolicy(
   })
 );
 
-// Configure getRentalWorkflowStatus Lambda
-const getRentalWorkflowStatusLambda = backend.getRentalWorkflowStatus.resources.lambda as Function;
+// =============================================================================
+// getRentalWorkflowStatus Configuration
+// =============================================================================
 getRentalWorkflowStatusLambda.addEnvironment('WORKFLOW_JOB_TABLE_NAME', workflowJobTableName);
-
-// Grant getRentalWorkflowStatus permission to read from DynamoDB
 workflowJobTable.grantReadData(getRentalWorkflowStatusLambda);
 
-// Configure newRentalWorkflow (Python) - uses direct DynamoDB access
+// =============================================================================
+// newRentalWorkflow (Python) Configuration
+// =============================================================================
 newRentalWorkflowLambda.addEnvironment('WORKFLOW_JOB_TABLE_NAME', workflowJobTableName);
-
-// Grant newRentalWorkflow permission to read/write DynamoDB
 workflowJobTable.grantReadWriteData(newRentalWorkflowLambda);
+
+// =============================================================================
+// getEntitlements Configuration
+// =============================================================================
+getEntitlementsLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
+usageRecordTable.grantReadData(getEntitlementsLambda);
+
+// =============================================================================
+// adminBetaAccess Configuration
+// =============================================================================
+adminBetaAccessLambda.addEnvironment(
+  'COGNITO_USER_POOL_ID',
+  backend.auth.resources.userPool.userPoolId
+);
+
+// Grant Cognito permissions for managing user groups
+adminBetaAccessLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:ListUsersInGroup',
+      'cognito-idp:ListUsers',
+      'cognito-idp:AdminGetUser',
+    ],
+    resources: [backend.auth.resources.userPool.userPoolArn],
+  })
+);
