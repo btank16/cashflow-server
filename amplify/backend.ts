@@ -5,8 +5,10 @@ import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
 import { testGeocoding } from './functions/testGeocoding/resource_python';
-import { adminBetaAccess } from './functions/adminBetaAccess/resource';
 import { getEntitlements } from './functions/getEntitlements/resource';
+import { grantBetaAccess } from './functions/grantBetaAccess/resource';
+import { revokeBetaAccess } from './functions/revokeBetaAccess/resource';
+import { listBetaUsers } from './functions/listBetaUsers/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
 
@@ -20,8 +22,10 @@ const backend = defineBackend({
   startRentalWorkflow,
   getRentalWorkflowStatus,
   testGeocoding,
-  adminBetaAccess,
-  getEntitlements
+  getEntitlements,
+  grantBetaAccess,
+  revokeBetaAccess,
+  listBetaUsers
 });
 
 // =============================================================================
@@ -38,8 +42,10 @@ const usageRecordTableName = usageRecordTable.tableName;
 const newRentalWorkflowLambda = backend.newRentalWorkflow.resources.lambda as Function;
 const startRentalWorkflowLambda = backend.startRentalWorkflow.resources.lambda as Function;
 const getRentalWorkflowStatusLambda = backend.getRentalWorkflowStatus.resources.lambda as Function;
-const adminBetaAccessLambda = backend.adminBetaAccess.resources.lambda as Function;
 const getEntitlementsLambda = backend.getEntitlements.resources.lambda as Function;
+const grantBetaAccessLambda = backend.grantBetaAccess.resources.lambda as Function;
+const revokeBetaAccessLambda = backend.revokeBetaAccess.resources.lambda as Function;
+const listBetaUsersLambda = backend.listBetaUsers.resources.lambda as Function;
 
 const newRentalWorkflowFunctionName = newRentalWorkflowLambda.functionName;
 
@@ -81,23 +87,42 @@ getEntitlementsLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
 usageRecordTable.grantReadData(getEntitlementsLambda);
 
 // =============================================================================
-// adminBetaAccess Configuration
+// Admin Beta Access Functions Configuration
 // =============================================================================
-adminBetaAccessLambda.addEnvironment(
-  'COGNITO_USER_POOL_ID',
-  backend.auth.resources.userPool.userPoolId
-);
+const cognitoUserPoolId = backend.auth.resources.userPool.userPoolId;
+const cognitoUserPoolArn = backend.auth.resources.userPool.userPoolArn;
 
-// Grant Cognito permissions for managing user groups
-adminBetaAccessLambda.addToRolePolicy(
+// grantBetaAccess - needs to add users to groups
+grantBetaAccessLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+grantBetaAccessLambda.addToRolePolicy(
   new PolicyStatement({
     actions: [
       'cognito-idp:AdminAddUserToGroup',
-      'cognito-idp:AdminRemoveUserFromGroup',
-      'cognito-idp:ListUsersInGroup',
       'cognito-idp:ListUsers',
-      'cognito-idp:AdminGetUser',
     ],
-    resources: [backend.auth.resources.userPool.userPoolArn],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// revokeBetaAccess - needs to remove users from groups
+revokeBetaAccessLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+revokeBetaAccessLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:ListUsers',
+    ],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// listBetaUsers - needs to list users in a group
+listBetaUsersLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+listBetaUsersLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:ListUsersInGroup',
+    ],
+    resources: [cognitoUserPoolArn],
   })
 );

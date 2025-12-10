@@ -2,8 +2,10 @@ import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 import { newRentalWorkflow } from '../functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from '../functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from '../functions/getRentalWorkflowStatus/resource';
-import { adminBetaAccess } from '../functions/adminBetaAccess/resource';
 import { getEntitlements } from '../functions/getEntitlements/resource';
+import { grantBetaAccess } from '../functions/grantBetaAccess/resource';
+import { revokeBetaAccess } from '../functions/revokeBetaAccess/resource';
+import { listBetaUsers } from '../functions/listBetaUsers/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -112,7 +114,7 @@ const schema = a.schema({
       userId: a.string()
     }))
     .authorization(allow => [allow.group('admin')])
-    .handler(a.handler.function(adminBetaAccess)),
+    .handler(a.handler.function(grantBetaAccess)),
 
   // Revoke beta access from a user by email
   // Authorization: Only users in the 'admin' Cognito group can invoke this
@@ -126,7 +128,7 @@ const schema = a.schema({
       message: a.string().required()
     }))
     .authorization(allow => [allow.group('admin')])
-    .handler(a.handler.function(adminBetaAccess)),
+    .handler(a.handler.function(revokeBetaAccess)),
 
   // List all users with beta access
   // Authorization: Only users in the 'admin' Cognito group can invoke this
@@ -136,7 +138,7 @@ const schema = a.schema({
       users: a.json()  // Array of { email, userId, username, dateAdded }
     }))
     .authorization(allow => [allow.group('admin')])
-    .handler(a.handler.function(adminBetaAccess)),
+    .handler(a.handler.function(listBetaUsers)),
 
   // =============================================================================
   // Data Models
