@@ -49,7 +49,8 @@ class WorkflowConfig(BaseModel):
     """Configuration options for the workflow."""
     default_down_payment: float = 20.0
     default_loan_type: str = "30-year fixed"
-    sales_time_period: str = "6 months"
+    sales_time_period: int = 6  # Number of months
+    sales_limit: int = 50  # Max number of sales to find
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
     is_primary_residence: bool = False
@@ -186,6 +187,8 @@ class SalesDataEntry(BaseModel):
     sale_date: Optional[str] = None
     sale_price: Optional[Union[str, float]] = None
     sqft: Optional[Union[str, int]] = None
+    beds: Optional[Union[str, int]] = None
+    baths: Optional[Union[str, float]] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     price_per_sqft: Optional[float] = None  # Calculated field for filtered output

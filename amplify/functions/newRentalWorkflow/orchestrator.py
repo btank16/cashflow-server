@@ -339,15 +339,18 @@ class NewRentalWorkflowOrchestrator:
             self.state.skip_step(WorkflowStep.SALES_DATA, 'Skipped: property_info failed', 'property_info')
             return
 
+        # Build full address for sales data lookup
+        full_address = f"{input_data.street}, {input_data.city}, {input_data.state} {input_data.zip}"
+
         if unit_data is None:
             logger.warning("property_info returned no unit_data, skipping apartment_comps")
-            self._execute_sales_data(property_type, input_data.zip, lat, lon)
+            self._execute_sales_data(property_type, input_data.zip, lat, lon, full_address)
             return
 
         # Steps 3b and 3c can run in parallel
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [
-                executor.submit(self._execute_sales_data, property_type, input_data.zip, lat, lon),
+                executor.submit(self._execute_sales_data, property_type, input_data.zip, lat, lon, full_address),
                 executor.submit(self._execute_apartment_comps, lat, lon, unit_data,
                                 input_data.city, input_data.state, input_data.street, input_data.zip)
             ]
@@ -611,7 +614,7 @@ class NewRentalWorkflowOrchestrator:
     # Step 3b: Sales Data
     # =========================================================================
 
-    def _execute_sales_data(self, property_type: str, zip_code: str, lat: float, lon: float) -> None:
+    def _execute_sales_data(self, property_type: str, zip_code: str, lat: float, lon: float, full_address: str) -> None:
         """Execute sales data lookup."""
         step_start = time.time()
         api_calls = 0
@@ -621,7 +624,9 @@ class NewRentalWorkflowOrchestrator:
             gemini_result = get_recent_property_sales({
                 'propertyType': property_type,
                 'zipCode': zip_code,
-                'timePeriod': self.config.sales_time_period
+                'timePeriod': self.config.sales_time_period,
+                'limit': self.config.sales_limit,
+                'address': full_address
             }, self.gemini_client)
             api_calls += 1
 
@@ -691,6 +696,8 @@ class NewRentalWorkflowOrchestrator:
         sale_dates = data.get('saleDate', [])
         sale_prices = data.get('salePrice', [])
         sq_footages = data.get('sqFootage', [])
+        beds = data.get('beds', [])
+        baths = data.get('baths', [])
 
         logger.info(f"Processing {len(addresses)} Gemini sales addresses for geocoding")
 
@@ -726,6 +733,8 @@ class NewRentalWorkflowOrchestrator:
                 sale_date=sale_dates[i] if i < len(sale_dates) else None,
                 sale_price=sale_prices[i] if i < len(sale_prices) else None,
                 sqft=sq_footages[i] if i < len(sq_footages) else None,
+                beds=beds[i] if i < len(beds) else None,
+                baths=baths[i] if i < len(baths) else None,
                 lat=lat,
                 lon=lon
             )
