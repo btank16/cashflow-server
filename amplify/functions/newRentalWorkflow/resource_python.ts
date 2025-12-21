@@ -26,7 +26,7 @@ export const newRentalWorkflow = defineFunction(
     const lambdaFunction = new Function(scope, 'newRentalWorkflow', {
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
-      timeout: Duration.seconds(540),
+      timeout: Duration.seconds(600),
       memorySize: 512,
       layers: [powertoolsLayer],
       code: Code.fromAsset(functionDir, {
