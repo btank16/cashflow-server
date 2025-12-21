@@ -17,13 +17,10 @@ import logging
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import create_error_response, create_success_response
 from ..common.osm_config import (
-    MAX_INTERPOLATION_DISTANCE,
     POLYGON_MIN_AREA,
     POLYGON_MAX_AREA,
     BBOX_BOUNDARY_CLASS,
-    get_boundary_class,
-    is_hard_boundary,
-    is_soft_boundary
+    get_boundary_class
 )
 
 logger = logging.getLogger(__name__)
@@ -538,7 +535,7 @@ class BoundaryBuilder:
         self,
         target_coords: Tuple[float, float],
         polygons: List[Polygon]
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[int]]:
+    ) -> Tuple[Optional[Polygon], Optional[int]]:
         """
         Select the smallest polygon containing the target address.
 
@@ -547,7 +544,7 @@ class BoundaryBuilder:
             polygons: List of candidate polygons
 
         Returns:
-            Tuple of (GeoJSON polygon, polygon_index) or (None, None) if no match
+            Tuple of (Shapely Polygon, polygon_index) or (None, None) if no match
         """
         target_point = Point(target_coords)
 
@@ -569,62 +566,7 @@ class BoundaryBuilder:
             f"from {len(containing_polygons)} containing polygons"
         )
 
-        # Convert to GeoJSON
-        geojson = self._polygon_to_geojson(smallest_polygon, target_coords)
-        return geojson, selected_idx
-
-    def _polygon_to_geojson(
-        self,
-        polygon: Polygon,
-        target_coords: Tuple[float, float]
-    ) -> Dict[str, Any]:
-        """
-        Convert Shapely polygon to GeoJSON format with metadata.
-
-        Args:
-            polygon: Shapely Polygon object
-            target_coords: (longitude, latitude) of target address
-
-        Returns:
-            GeoJSON Feature with polygon and properties
-        """
-        # Get exterior coordinates
-        coords = list(polygon.exterior.coords)
-
-        # Calculate statistics
-        area_sq_degrees = polygon.area
-        num_vertices = len(coords) - 1
-
-        # Find which ways form the boundary
-        boundary_ways = []
-        for linestring, metadata in self.linestrings:
-            if polygon.boundary.distance(linestring) < 1e-6:
-                boundary_ways.append({
-                    'category': metadata['category'],
-                    'type': metadata['type'],
-                    'name': metadata['name'],
-                    'boundary_class': metadata.get('boundary_class', 'soft')
-                })
-
-        geojson = {
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Polygon',
-                'coordinates': [coords]
-            },
-            'properties': {
-                'area_sq_degrees': area_sq_degrees,
-                'area_sq_km': area_sq_degrees * 111 * 111,
-                'num_vertices': num_vertices,
-                'target_coords': {
-                    'lon': target_coords[0],
-                    'lat': target_coords[1]
-                },
-                'boundary_ways': boundary_ways[:10]
-            }
-        }
-
-        return geojson
+        return smallest_polygon, selected_idx
 
     def expand_through_soft_boundaries(
         self,
@@ -760,13 +702,13 @@ def build_boundary_polygon(
 
     Returns:
         FunctionResult containing:
-        - polygon: Selected polygon as GeoJSON
+        - polygon: Selected Shapely Polygon object
+        - polygon_area_sq_degrees: Area of the polygon in square degrees
         - total_polygons_found: Count of all polygons
-        - selected_polygon_idx: Index of selected polygon (if enable_expansion)
+        - selected_polygon_idx: Index of selected polygon
         - If enable_expansion=True:
-            - all_polygons_geojson: All polygons as GeoJSON (for debugging)
             - adjacency: Polygon adjacency graph
-            - builder: Reference to BoundaryBuilder for expansion
+            - _builder: Reference to BoundaryBuilder for expansion
     """
     try:
         builder = BoundaryBuilder(osm_ways, bbox)
@@ -780,7 +722,7 @@ def build_boundary_polygon(
                 ErrorCode.DATA_VALIDATION_ERROR
             )
 
-        # Select polygon containing target address
+        # Select polygon containing target address (returns Shapely Polygon directly)
         selected_polygon, selected_idx = builder.select_polygon_for_address(target_coords, all_polygons)
 
         if not selected_polygon:
@@ -790,7 +732,8 @@ def build_boundary_polygon(
             )
 
         result_data = {
-            'polygon': selected_polygon,
+            'polygon': selected_polygon,  # Shapely Polygon object
+            'polygon_area_sq_degrees': selected_polygon.area,
             'total_polygons_found': len(all_polygons),
             'selected_polygon_idx': selected_idx
         }
@@ -823,7 +766,6 @@ def build_boundary_polygon(
 
 def expand_boundary_polygon(
     boundary_result: Dict[str, Any],
-    target_coords: Tuple[float, float],
     max_tiers: int = 2,
     enable_tier_three: bool = False,
     current_data_count: int = 0,
@@ -834,14 +776,17 @@ def expand_boundary_polygon(
 
     Args:
         boundary_result: Result data from build_boundary_polygon(enable_expansion=True)
-        target_coords: (longitude, latitude) of target address (for GeoJSON)
         max_tiers: Maximum tier 1-2 expansion tiers (default 2)
         enable_tier_three: If True, allow tier 3 expansion through primary roads
         current_data_count: Current filtered data count (used for tier 3 decision)
         min_data_for_tier_three: Trigger tier 3 if data count <= this value (default 2)
 
     Returns:
-        FunctionResult with expanded polygon as GeoJSON
+        FunctionResult containing:
+        - polygon: Expanded Shapely Polygon object
+        - polygon_area_sq_degrees: Area of the expanded polygon
+        - expansion_metadata: Dict with expansion details
+        - is_expanded: Boolean indicating if expansion occurred
     """
     try:
         builder = boundary_result.get('_builder')
@@ -874,12 +819,10 @@ def expand_boundary_polygon(
                 ErrorCode.INTERNAL_ERROR
             )
 
-        # Convert to GeoJSON
-        expanded_geojson = builder._polygon_to_geojson(expanded_polygon, target_coords)
-
         return create_success_response(
             {
-                'polygon': expanded_geojson,
+                'polygon': expanded_polygon,  # Shapely Polygon object
+                'polygon_area_sq_degrees': expanded_polygon.area,
                 'expansion_metadata': expansion_metadata,
                 'is_expanded': expansion_metadata['included_polygon_count'] > 1
             },

@@ -124,8 +124,7 @@ class PolygonExpansionMetadata(BaseModel):
 
 
 class PolygonData(BaseModel):
-    """Boundary polygon data."""
-    polygon: Optional[Dict[str, Any]] = None  # GeoJSON polygon
+    """Boundary polygon metadata (polygon geometry stored separately as Shapely object)."""
     osm_ways_count: int = 0
     polygon_area_sq_degrees: Optional[float] = None
     construction_method: Optional[str] = None
@@ -284,6 +283,9 @@ class FilteredSalesData(BaseModel):
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
     filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
+    # Tiered filtering tracking
+    boundary_included: bool = False  # True if boundary addresses were added due to insufficient inside-only count
+    filtering_stage: Optional[str] = None  # "inside_only" | "with_boundary" | "expanded_tier1_2" | "expanded_tier3"
 
 
 class FilteredApartmentData(BaseModel):
@@ -296,6 +298,9 @@ class FilteredApartmentData(BaseModel):
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
     filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
+    # Tiered filtering tracking
+    boundary_included: bool = False  # True if boundary addresses were added due to insufficient inside-only count
+    filtering_stage: Optional[str] = None  # "inside_only" | "with_boundary" | "expanded_tier1_2" | "expanded_tier3"
 
 
 class FormattedOutput(BaseModel):

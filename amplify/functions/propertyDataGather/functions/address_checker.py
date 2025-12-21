@@ -1,7 +1,7 @@
 """Address checking functions for polygon boundary containment testing."""
 
 from typing import Dict, Any, List, Tuple
-from shapely.geometry import Point, shape
+from shapely.geometry import Point, Polygon
 import logging
 
 from ..common.types import FunctionResult, ErrorCode
@@ -54,7 +54,7 @@ def check_addresses_against_polygon(
 
     Args:
         input_data: Dictionary containing:
-            - polygon: GeoJSON polygon (from boundary_builder)
+            - polygon: Shapely Polygon object (from boundary_builder)
             - addresses: List of address dicts with lat/lon coordinates
 
     Returns:
@@ -65,7 +65,7 @@ def check_addresses_against_polygon(
 
     Example:
         >>> input_data = {
-        ...     "polygon": {...},  # GeoJSON polygon
+        ...     "polygon": shapely_polygon,  # Shapely Polygon object
         ...     "addresses": [
         ...         {"lat": 41.476, "lon": -81.786, "street": "2029 Elbur Ave"},
         ...         {"lat": 41.480, "lon": -81.790, "street": "1234 Main St"}
@@ -85,26 +85,13 @@ def check_addresses_against_polygon(
         )
 
     try:
-        polygon_geojson = input_data['polygon']
+        polygon_shape = input_data['polygon']
         addresses = input_data['addresses']
 
-        # Validate polygon format
-        if not isinstance(polygon_geojson, dict):
+        # Validate polygon is a Shapely Polygon
+        if not isinstance(polygon_shape, Polygon):
             return create_error_response(
-                "Polygon must be a GeoJSON object",
-                ErrorCode.VALIDATION_ERROR
-            )
-
-        # Convert GeoJSON to Shapely polygon
-        try:
-            # Handle both Feature and Geometry formats
-            if polygon_geojson.get('type') == 'Feature':
-                polygon_shape = shape(polygon_geojson['geometry'])
-            else:
-                polygon_shape = shape(polygon_geojson)
-        except Exception as e:
-            return create_error_response(
-                f"Failed to parse polygon GeoJSON: {str(e)}",
+                "Polygon must be a Shapely Polygon object",
                 ErrorCode.VALIDATION_ERROR
             )
 
@@ -198,7 +185,7 @@ def check_addresses_against_polygon(
 
 
 def batch_classify_addresses(
-    polygon_geojson: Dict[str, Any],
+    polygon: Polygon,
     address_coords: List[Tuple[float, float]],
     boundary_buffer: float = BOUNDARY_BUFFER_DISTANCE
 ) -> Dict[str, List[int]]:
@@ -208,7 +195,7 @@ def batch_classify_addresses(
     Optimized version for large batches of coordinates.
 
     Args:
-        polygon_geojson: GeoJSON polygon object
+        polygon: Shapely Polygon object
         address_coords: List of (longitude, latitude) tuples
         boundary_buffer: Distance threshold for boundary detection
 
@@ -216,19 +203,13 @@ def batch_classify_addresses(
         Dictionary with indices of addresses by classification
     """
     try:
-        # Convert polygon to Shapely
-        if polygon_geojson.get('type') == 'Feature':
-            polygon_shape = shape(polygon_geojson['geometry'])
-        else:
-            polygon_shape = shape(polygon_geojson)
-
         inside_indices = []
         outside_indices = []
         boundary_indices = []
 
         for i, (lon, lat) in enumerate(address_coords):
             point = Point(lon, lat)
-            classification = _classify_point(point, polygon_shape, boundary_buffer)
+            classification = _classify_point(point, polygon, boundary_buffer)
 
             if classification == 'inside':
                 inside_indices.append(i)

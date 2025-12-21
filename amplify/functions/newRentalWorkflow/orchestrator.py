@@ -61,9 +61,7 @@ from propertyDataGather.functions.rentcast_data import (
 from propertyDataGather.functions.gemini_property_details import get_initial_property_info_gemini
 from propertyDataGather.functions.property_tax import get_property_tax
 from propertyDataGather.functions.gemini_property_sales import get_recent_property_sales
-from propertyDataGather.functions.apartment_search import get_apartment_comps
-from propertyDataGather.functions.metro_area_lookup import is_valid_city
-from propertyDataGather.functions.neighborhood_lookup import get_neighborhood_name
+from propertyDataGather.functions.gemini_apartment_comps import get_gemini_apartment_comps
 from propertyDataGather.functions.address_checker import check_addresses_against_polygon
 from propertyDataGather.functions.median_analysis import get_five_number_summary
 
@@ -94,6 +92,8 @@ class NewRentalWorkflowOrchestrator:
         self.gemini_client = gemini_client
         self.config = config or WorkflowConfig()
         self.state: Optional[WorkflowState] = None
+        # Store Shapely polygon for internal use (not serializable in Pydantic models)
+        self._working_polygon: Optional[Any] = None
         # Store boundary expansion data for potential use in post-processing
         self._boundary_expansion_data: Optional[Dict[str, Any]] = None
         self._target_coords: Optional[Tuple[float, float]] = None
@@ -272,7 +272,7 @@ class NewRentalWorkflowOrchestrator:
 
         try:
             # Store target coordinates for potential expansion
-            self._target_coords = (lon, lat)  # Note: lon, lat order for GeoJSON
+            self._target_coords = (lon, lat)  # Note: lon, lat order for Shapely (x, y)
 
             # Calculate radius bounding box
             radius_bbox = calculate_radius_bbox(lat, lon, self.config.search_radius_miles)
@@ -297,19 +297,22 @@ class NewRentalWorkflowOrchestrator:
             polygon_result = build_boundary_polygon(
                 osm_result.data.get('ways', []),
                 radius_bbox,
-                (lon, lat),  # Note: lon, lat order for GeoJSON
+                (lon, lat),
                 enable_expansion=self.config.enable_polygon_expansion
             )
 
             if polygon_result.success and polygon_result.data:
+                # Store Shapely polygon for internal use (not serializable, so kept separate)
+                self._working_polygon = polygon_result.data.get('polygon')
+
                 # Store expansion data for potential use in post-processing
                 if self.config.enable_polygon_expansion:
                     self._boundary_expansion_data = polygon_result.data
 
+                # Store metadata only (polygon geometry kept in _working_polygon)
                 self.state.data.boundary_polygon = PolygonData(
-                    polygon=polygon_result.data.get('polygon'),
                     osm_ways_count=len(osm_result.data.get('ways', [])),
-                    polygon_area_sq_degrees=polygon_result.data.get('polygon', {}).get('properties', {}).get('area_sq_degrees'),
+                    polygon_area_sq_degrees=polygon_result.data.get('polygon_area_sq_degrees'),
                     construction_method='intersection_based',
                     selected_polygon_idx=polygon_result.data.get('selected_polygon_idx'),
                     total_polygons_found=polygon_result.data.get('total_polygons_found')
@@ -317,7 +320,7 @@ class NewRentalWorkflowOrchestrator:
 
             self.state.complete_step(WorkflowStep.BOUNDARY_ANALYSIS, {
                 'bounding_boxes': self.state.data.bounding_boxes.model_dump() if self.state.data.bounding_boxes else None,
-                'polygon': self.state.data.boundary_polygon.model_dump() if self.state.data.boundary_polygon else None
+                'polygon_metadata': self.state.data.boundary_polygon.model_dump() if self.state.data.boundary_polygon else None
             }, 'overpass', api_calls, step_start)
             self._notify_step_complete('boundary_analysis')
 
@@ -830,10 +833,10 @@ class NewRentalWorkflowOrchestrator:
                 self._notify_step_complete(f'apartment_comps_{unit_key}')
                 return comp_data
 
-            # Fallback to Perplexity
-            logger.info(f"Rentcast rental failed for {unit_key}, falling back to Perplexity")
-            return self._execute_apartment_comp_perplexity(beds, baths, sqft, city, state, street, zip_code,
-                                                           unit_key, step_start, api_calls)
+            # Fallback to Gemini
+            logger.info(f"Rentcast rental failed for {unit_key}, falling back to Gemini")
+            return self._execute_apartment_comp_gemini(beds, baths, sqft, city, state, street, zip_code,
+                                                        unit_key, step_start, api_calls)
 
         except Exception as e:
             logger.error(f"Apartment comp error for {unit_key}: {e}", exc_info=True)
@@ -857,43 +860,87 @@ class NewRentalWorkflowOrchestrator:
         return ApartmentCompData(source='rentcast', unit_beds=beds, unit_baths=baths,
                                  unit_sqft=sqft, listings=entries, total_count=len(entries))
 
-    def _execute_apartment_comp_perplexity(self, beds: int, baths: int, sqft: int,
-                                            city: str, state: str, street: str, zip_code: str,
-                                            unit_key: str, step_start: float, api_calls: int) -> Optional[ApartmentCompData]:
-        """Fallback to Perplexity for apartment comps."""
+    def _execute_apartment_comp_gemini(self, beds: int, baths: int, sqft: int,
+                                         city: str, state: str, street: str, zip_code: str,
+                                         unit_key: str, step_start: float, api_calls: int) -> Optional[ApartmentCompData]:
+        """Fallback to Gemini for apartment comps."""
         try:
-            neighborhood = None
-            if is_valid_city(city):
-                neighborhood_result = get_neighborhood_name({
-                    'street': street, 'city': city, 'state': state, 'zip': zip_code
-                }, self.perplexity_client)
-                api_calls += 1
-                if neighborhood_result.success and neighborhood_result.data:
-                    neighborhood = neighborhood_result.data.get('neighborhood')
+            full_address = f"{street}, {city}, {state} {zip_code}"
 
-            apartment_result = get_apartment_comps({
-                'city': city, 'state': state,
-                'bed_count': beds, 'bath_count': baths, 'neighborhood': neighborhood
-            }, self.perplexity_client)
+            gemini_result = get_gemini_apartment_comps({
+                'zipCode': zip_code,
+                'bedrooms': beds,
+                'bathrooms': baths,
+                'address': full_address,
+                'limit': 50
+            }, self.gemini_client)
             api_calls += 1
 
-            if apartment_result.success and apartment_result.data.get('addresses'):
-                addresses = apartment_result.data['addresses']
+            if gemini_result.success and gemini_result.data.get('addresses'):
+                addresses = gemini_result.data['addresses']
+                rents = gemini_result.data.get('rent', [])
+                beds_list = gemini_result.data.get('beds', [])
+                baths_list = gemini_result.data.get('baths', [])
+                sqft_list = gemini_result.data.get('sqFootage', [])
+
+                # Geocode addresses
                 addresses_to_geocode = [{'street': addr, 'city': city, 'state': state, 'zip': ''} for addr in addresses]
                 geocoded = batch_geocode_addresses(addresses_to_geocode)
                 api_calls += len(addresses)
 
                 entries = []
                 for i, addr in enumerate(addresses):
-                    entry = ApartmentCompEntry(address=addr, bedrooms=beds, bathrooms=baths)
+                    # Parse rent value
+                    rent_val = None
+                    if i < len(rents) and rents[i]:
+                        try:
+                            rent_str = str(rents[i]).replace(',', '').replace('$', '')
+                            rent_val = float(rent_str)
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Parse sqft value
+                    sqft_val = None
+                    if i < len(sqft_list) and sqft_list[i]:
+                        try:
+                            sqft_str = str(sqft_list[i]).replace(',', '')
+                            sqft_val = int(float(sqft_str))
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Parse beds value
+                    beds_val = beds  # Default to searched beds
+                    if i < len(beds_list) and beds_list[i]:
+                        try:
+                            beds_val = int(beds_list[i])
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Parse baths value
+                    baths_val = baths  # Default to searched baths
+                    if i < len(baths_list) and baths_list[i]:
+                        try:
+                            baths_val = float(baths_list[i])
+                        except (ValueError, TypeError):
+                            pass
+
+                    entry = ApartmentCompEntry(
+                        address=addr,
+                        rent=rent_val,
+                        bedrooms=beds_val,
+                        bathrooms=baths_val,
+                        sqft=sqft_val
+                    )
+
                     if i < len(geocoded) and geocoded[i].success:
                         entry.lat = float(geocoded[i].data.get('lat', 0))
                         entry.lon = float(geocoded[i].data.get('lon', 0))
+
                     entries.append(entry)
 
-                comp_data = ApartmentCompData(source='perplexity', unit_beds=beds, unit_baths=baths,
+                comp_data = ApartmentCompData(source='gemini', unit_beds=beds, unit_baths=baths,
                                               unit_sqft=sqft, listings=entries, total_count=len(entries))
-                self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'perplexity', api_calls, step_start)
+                self.state.complete_apartment_comp(unit_key, comp_data.model_dump(), 'gemini', api_calls, step_start)
                 self._notify_step_complete(f'apartment_comps_{unit_key}')
                 return comp_data
 
@@ -901,7 +948,7 @@ class NewRentalWorkflowOrchestrator:
             return None
 
         except Exception as e:
-            logger.error(f"Apartment comp fallback error: {e}", exc_info=True)
+            logger.error(f"Apartment comp Gemini fallback error: {e}", exc_info=True)
             self.state.fail_apartment_comp(unit_key, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
             return None
 
@@ -921,9 +968,8 @@ class NewRentalWorkflowOrchestrator:
         """
         step_start = time.time()
 
-        # Check if polygon is available
-        has_polygon = (self.state.data.boundary_polygon and
-                       self.state.data.boundary_polygon.polygon)
+        # Check if polygon is available (Shapely polygon stored in instance var)
+        has_polygon = self._working_polygon is not None
 
         # Check if we can do any filtering at all
         if not has_polygon and not self._target_coords:
@@ -934,7 +980,7 @@ class NewRentalWorkflowOrchestrator:
         if not has_polygon:
             logger.info("No polygon available, using distance-based fallback filtering")
 
-        original_polygon = self.state.data.boundary_polygon.polygon if has_polygon else None
+        original_polygon = self._working_polygon
         formatted_output = FormattedOutput()
 
         try:
@@ -981,22 +1027,41 @@ class NewRentalWorkflowOrchestrator:
 
     def _filter_sales_with_expansion(self, original_polygon: Dict) -> FilteredSalesData:
         """
-        Filter sales data with independent expansion logic.
+        Filter sales data with tiered inclusion and independent expansion logic.
 
-        If filtered count < threshold and expansion is enabled, expands polygon
-        and re-filters. Supports tier 3 expansion through primary roads if data
-        is still insufficient after tier 1-2.
+        Tiered filtering order:
+        1. Inside-only: First try with only addresses strictly inside the polygon
+        2. With boundary: If insufficient, add addresses on polygon boundary
+        3. Tier 1-2 expansion: If still insufficient, expand through soft boundaries
+        4. Tier 3 expansion: If still insufficient, expand through primary roads
         """
-        # First pass: filter against original polygon
-        filtered_result = self._filter_and_analyze_sales(original_polygon)
+        # Step 1: Filter with inside-only (no boundary addresses)
+        filtered_result = self._filter_and_analyze_sales(original_polygon, include_boundary=False)
+        filtered_result.boundary_included = False
+        filtered_result.filtering_stage = "inside_only"
+        filtered_result.is_expanded = False
 
-        # Check if expansion is needed for THIS data type
+        logger.info(f"Sales data (inside-only): {filtered_result.filtered_count}")
+
+        # Step 2: If insufficient, add boundary addresses
+        if filtered_result.filtered_count < self.config.min_data_for_analysis:
+            logger.info(f"Sales data: {filtered_result.filtered_count} inside-only "
+                       f"(minimum: {self.config.min_data_for_analysis}), adding boundary addresses")
+
+            filtered_result = self._filter_and_analyze_sales(original_polygon, include_boundary=True)
+            filtered_result.boundary_included = True
+            filtered_result.filtering_stage = "with_boundary"
+            filtered_result.is_expanded = False
+
+            logger.info(f"Sales data (inside + boundary): {filtered_result.filtered_count}")
+
+        # Step 3: If still insufficient, attempt polygon expansion
         if (self.config.enable_polygon_expansion and
             filtered_result.filtered_count < self.config.min_data_for_analysis and
             self._boundary_expansion_data is not None and
             self._target_coords is not None):
 
-            logger.info(f"Sales data: {filtered_result.filtered_count} in polygon "
+            logger.info(f"Sales data: {filtered_result.filtered_count} with boundary "
                        f"(minimum: {self.config.min_data_for_analysis}), attempting tier 1-2 expansion")
 
             # Phase 1: Tier 1-2 expansion (soft boundaries only)
@@ -1005,9 +1070,11 @@ class NewRentalWorkflowOrchestrator:
             )
 
             if expanded_polygon and expansion_metadata:
-                # Re-filter with tier 1-2 expanded polygon
-                filtered_result = self._filter_and_analyze_sales(expanded_polygon)
+                # Re-filter with tier 1-2 expanded polygon (include boundary since we already tried without)
+                filtered_result = self._filter_and_analyze_sales(expanded_polygon, include_boundary=True)
+                filtered_result.boundary_included = True
                 filtered_result.is_expanded = True
+                filtered_result.filtering_stage = "expanded_tier1_2"
 
                 # Phase 2: Check if tier 3 is needed
                 if filtered_result.filtered_count <= self.config.min_data_for_tier_three:
@@ -1022,10 +1089,13 @@ class NewRentalWorkflowOrchestrator:
 
                     if tier3_polygon and tier3_metadata and tier3_metadata.get('tier_three_triggered'):
                         # Re-filter with tier 3 expanded polygon
-                        filtered_result = self._filter_and_analyze_sales(tier3_polygon)
+                        filtered_result = self._filter_and_analyze_sales(tier3_polygon, include_boundary=True)
+                        filtered_result.boundary_included = True
+                        filtered_result.filtering_stage = "expanded_tier3"
                         expansion_metadata = tier3_metadata
                         logger.info(f"Sales data after tier 3: {filtered_result.filtered_count}")
 
+                filtered_result.is_expanded = True
                 filtered_result.expansion_metadata = PolygonExpansionMetadata(
                     original_area_sq_degrees=expansion_metadata.get('original_area_sq_degrees', 0),
                     expanded_area_sq_degrees=expansion_metadata.get('expanded_area_sq_degrees', 0),
@@ -1036,12 +1106,6 @@ class NewRentalWorkflowOrchestrator:
                     tier_three_triggered=expansion_metadata.get('tier_three_triggered', False)
                 )
                 logger.info(f"Sales data after expansion: {filtered_result.filtered_count} in expanded polygon")
-            else:
-                # No expansion occurred
-                filtered_result.is_expanded = False
-        else:
-            # No expansion needed or not enabled
-            filtered_result.is_expanded = False
 
         return filtered_result
 
@@ -1052,25 +1116,54 @@ class NewRentalWorkflowOrchestrator:
         comp_data: ApartmentCompData
     ) -> Optional[FilteredApartmentData]:
         """
-        Filter apartment comp data with independent expansion logic.
+        Filter apartment comp data with tiered inclusion and independent expansion logic.
 
         Each unit type is filtered and potentially expanded independently.
-        Supports tier 3 expansion through primary roads if data is still
-        insufficient after tier 1-2.
+
+        Tiered filtering order:
+        1. Inside-only: First try with only addresses strictly inside the polygon
+        2. With boundary: If insufficient, add addresses on polygon boundary
+        3. Tier 1-2 expansion: If still insufficient, expand through soft boundaries
+        4. Tier 3 expansion: If still insufficient, expand through primary roads
         """
-        # First pass: filter against original polygon
-        filtered_result = self._filter_and_analyze_apartment_comp(original_polygon, unit_key, comp_data)
+        # Step 1: Filter with inside-only (no boundary addresses)
+        filtered_result = self._filter_and_analyze_apartment_comp(
+            original_polygon, unit_key, comp_data, include_boundary=False
+        )
 
         if filtered_result is None:
             return None
 
-        # Check if expansion is needed for THIS unit type
+        filtered_result.boundary_included = False
+        filtered_result.filtering_stage = "inside_only"
+        filtered_result.is_expanded = False
+
+        logger.info(f"Apartment comps {unit_key} (inside-only): {filtered_result.filtered_count}")
+
+        # Step 2: If insufficient, add boundary addresses
+        if filtered_result.filtered_count < self.config.min_data_for_analysis:
+            logger.info(f"Apartment comps {unit_key}: {filtered_result.filtered_count} inside-only "
+                       f"(minimum: {self.config.min_data_for_analysis}), adding boundary addresses")
+
+            filtered_result = self._filter_and_analyze_apartment_comp(
+                original_polygon, unit_key, comp_data, include_boundary=True
+            )
+            if filtered_result is None:
+                return None
+
+            filtered_result.boundary_included = True
+            filtered_result.filtering_stage = "with_boundary"
+            filtered_result.is_expanded = False
+
+            logger.info(f"Apartment comps {unit_key} (inside + boundary): {filtered_result.filtered_count}")
+
+        # Step 3: If still insufficient, attempt polygon expansion
         if (self.config.enable_polygon_expansion and
             filtered_result.filtered_count < self.config.min_data_for_analysis and
             self._boundary_expansion_data is not None and
             self._target_coords is not None):
 
-            logger.info(f"Apartment comps {unit_key}: {filtered_result.filtered_count} in polygon "
+            logger.info(f"Apartment comps {unit_key}: {filtered_result.filtered_count} with boundary "
                        f"(minimum: {self.config.min_data_for_analysis}), attempting tier 1-2 expansion")
 
             # Phase 1: Tier 1-2 expansion (soft boundaries only)
@@ -1079,10 +1172,14 @@ class NewRentalWorkflowOrchestrator:
             )
 
             if expanded_polygon and expansion_metadata:
-                # Re-filter with tier 1-2 expanded polygon
-                filtered_result = self._filter_and_analyze_apartment_comp(expanded_polygon, unit_key, comp_data)
+                # Re-filter with tier 1-2 expanded polygon (include boundary since we already tried without)
+                filtered_result = self._filter_and_analyze_apartment_comp(
+                    expanded_polygon, unit_key, comp_data, include_boundary=True
+                )
                 if filtered_result:
+                    filtered_result.boundary_included = True
                     filtered_result.is_expanded = True
+                    filtered_result.filtering_stage = "expanded_tier1_2"
 
                     # Phase 2: Check if tier 3 is needed
                     if filtered_result.filtered_count <= self.config.min_data_for_tier_three:
@@ -1097,10 +1194,14 @@ class NewRentalWorkflowOrchestrator:
 
                         if tier3_polygon and tier3_metadata and tier3_metadata.get('tier_three_triggered'):
                             # Re-filter with tier 3 expanded polygon
-                            tier3_result = self._filter_and_analyze_apartment_comp(tier3_polygon, unit_key, comp_data)
+                            tier3_result = self._filter_and_analyze_apartment_comp(
+                                tier3_polygon, unit_key, comp_data, include_boundary=True
+                            )
                             if tier3_result:
                                 filtered_result = tier3_result
+                                filtered_result.boundary_included = True
                                 filtered_result.is_expanded = True
+                                filtered_result.filtering_stage = "expanded_tier3"
                                 expansion_metadata = tier3_metadata
                                 logger.info(f"Apartment comps {unit_key} after tier 3: {filtered_result.filtered_count}")
 
@@ -1114,12 +1215,6 @@ class NewRentalWorkflowOrchestrator:
                         tier_three_triggered=expansion_metadata.get('tier_three_triggered', False)
                     )
                     logger.info(f"Apartment comps {unit_key} after expansion: {filtered_result.filtered_count}")
-            else:
-                # No expansion occurred
-                filtered_result.is_expanded = False
-        else:
-            # No expansion needed or not enabled
-            filtered_result.is_expanded = False
 
         return filtered_result
 
@@ -1127,7 +1222,7 @@ class NewRentalWorkflowOrchestrator:
         self,
         enable_tier_three: bool = False,
         current_data_count: int = 0
-    ) -> Tuple[Optional[Dict], Optional[Dict]]:
+    ) -> Tuple[Optional[Any], Optional[Dict]]:
         """
         Attempt to expand the polygon through soft boundaries.
 
@@ -1139,15 +1234,14 @@ class NewRentalWorkflowOrchestrator:
             current_data_count: Current filtered data count (used for tier 3 decision)
 
         Returns:
-            Tuple of (expanded_polygon_geojson, expansion_metadata_dict) or (None, None)
+            Tuple of (expanded_shapely_polygon, expansion_metadata_dict) or (None, None)
         """
-        if not self._boundary_expansion_data or not self._target_coords:
+        if not self._boundary_expansion_data:
             return None, None
 
         try:
             expanded_result = expand_boundary_polygon(
                 self._boundary_expansion_data,
-                self._target_coords,
                 max_tiers=self.config.max_expansion_tiers,
                 enable_tier_three=enable_tier_three,
                 current_data_count=current_data_count,
@@ -1243,8 +1337,18 @@ class NewRentalWorkflowOrchestrator:
 
         return input_property
 
-    def _filter_and_analyze_sales(self, polygon: Dict) -> FilteredSalesData:
-        """Filter sales data by polygon, calculate price per sqft, and compute summary."""
+    def _filter_and_analyze_sales(
+        self,
+        polygon: Any,
+        include_boundary: bool = True
+    ) -> FilteredSalesData:
+        """Filter sales data by polygon, calculate price per sqft, and compute summary.
+
+        Args:
+            polygon: Shapely Polygon to filter against
+            include_boundary: If True, include addresses on polygon boundary.
+                              If False, only include addresses strictly inside.
+        """
         sales_data = self.state.data.sales_data
 
         # Prepare addresses for filtering (only those with lat/lon)
@@ -1265,12 +1369,16 @@ class NewRentalWorkflowOrchestrator:
                 'addresses': addresses_to_check
             })
 
-            # Get filtered entries (inside + boundary)
+            # Get filtered entries
             if check_result.success:
                 inside_addresses = check_result.data.get('inside', [])
-                boundary_addresses = check_result.data.get('boundary', [])
                 inside_indices = {addr['index'] for addr in inside_addresses}
-                boundary_indices = {addr['index'] for addr in boundary_addresses}
+
+                # Only include boundary addresses if requested
+                boundary_indices = set()
+                if include_boundary:
+                    boundary_addresses = check_result.data.get('boundary', [])
+                    boundary_indices = {addr['index'] for addr in boundary_addresses}
 
                 for i, sale in enumerate(sales_data.sales):
                     if i in inside_indices or i in boundary_indices:
@@ -1349,11 +1457,20 @@ class NewRentalWorkflowOrchestrator:
 
     def _filter_and_analyze_apartment_comp(
         self,
-        polygon: Dict,
+        polygon: Any,
         unit_key: str,
-        comp_data: ApartmentCompData
+        comp_data: ApartmentCompData,
+        include_boundary: bool = True
     ) -> Optional[FilteredApartmentData]:
-        """Filter apartment comps by polygon, calculate rent per sqft, and compute summary."""
+        """Filter apartment comps by polygon, calculate rent per sqft, and compute summary.
+
+        Args:
+            polygon: Shapely Polygon to filter against
+            unit_key: Unit type key (e.g., "2bd_1ba")
+            comp_data: Apartment comp data to filter
+            include_boundary: If True, include addresses on polygon boundary.
+                              If False, only include addresses strictly inside.
+        """
 
         # Prepare addresses for filtering
         addresses_to_check = []
@@ -1373,12 +1490,16 @@ class NewRentalWorkflowOrchestrator:
                 'addresses': addresses_to_check
             })
 
-            # Get filtered entries (inside + boundary)
+            # Get filtered entries
             if check_result.success:
                 inside_addresses = check_result.data.get('inside', [])
-                boundary_addresses = check_result.data.get('boundary', [])
                 inside_indices = {addr['index'] for addr in inside_addresses}
-                boundary_indices = {addr['index'] for addr in boundary_addresses}
+
+                # Only include boundary addresses if requested
+                boundary_indices = set()
+                if include_boundary:
+                    boundary_addresses = check_result.data.get('boundary', [])
+                    boundary_indices = {addr['index'] for addr in boundary_addresses}
 
                 for i, listing in enumerate(comp_data.listings):
                     if i in inside_indices or i in boundary_indices:
@@ -1425,7 +1546,7 @@ class NewRentalWorkflowOrchestrator:
         configured by fallback_comp_count. If fewer than N comps exist, returns all.
         """
         sales_data = self.state.data.sales_data
-        # _target_coords is stored as (lon, lat) for GeoJSON compatibility
+        # _target_coords is stored as (lon, lat) for Shapely compatibility
         target_lat, target_lon = self._target_coords[1], self._target_coords[0]
 
         # Calculate distance for each sale with valid coordinates
@@ -1474,7 +1595,7 @@ class NewRentalWorkflowOrchestrator:
         Selects the N closest apartment comps to the target property, where N is
         configured by fallback_comp_count. If fewer than N comps exist, returns all.
         """
-        # _target_coords is stored as (lon, lat) for GeoJSON compatibility
+        # _target_coords is stored as (lon, lat) for Shapely compatibility
         target_lat, target_lon = self._target_coords[1], self._target_coords[0]
 
         # Calculate distance for each listing with valid coordinates
