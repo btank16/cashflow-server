@@ -59,6 +59,8 @@ class WorkflowConfig(BaseModel):
     min_data_for_analysis: int = 5  # Minimum data points before tier 1-2 expansion
     max_expansion_tiers: int = 2  # Maximum tier 1-2 expansion iterations
     min_data_for_tier_three: int = 2  # If ≤ this after tier 2, trigger tier 3 (crosses primary roads)
+    # Distance fallback settings (when polygon unavailable)
+    fallback_comp_count: int = 5  # Number of closest comps to return when polygon unavailable
 
 
 # =============================================================================
@@ -274,17 +276,18 @@ class InputPropertyInfo(BaseModel):
 
 
 class FilteredSalesData(BaseModel):
-    """Filtered sales data within polygon."""
+    """Filtered sales data within polygon or by distance fallback."""
     filtered_addresses: List[SalesDataEntry]
     filtered_count: int
     original_count: int
     price_summary: Optional[FiveNumberSummaryResult] = None
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
+    filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
 
 
 class FilteredApartmentData(BaseModel):
-    """Filtered apartment comps within polygon for a unit type."""
+    """Filtered apartment comps within polygon or by distance fallback."""
     unit_key: str  # e.g., "2bd_1ba"
     filtered_addresses: List[ApartmentCompEntry]
     filtered_count: int
@@ -292,6 +295,7 @@ class FilteredApartmentData(BaseModel):
     rent_summary: Optional[FiveNumberSummaryResult] = None
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
+    filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
 
 
 class FormattedOutput(BaseModel):

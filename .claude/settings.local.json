@@ -20,7 +20,8 @@
       "WebFetch(domain:wiki.openstreetmap.org)",
       "WebFetch(domain:shapely.readthedocs.io)",
       "WebFetch(domain:developers.rentcast.io)",
-      "WebFetch(domain:ai.google.dev)"
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:docs.powertools.aws.dev)"
     ],
     "deny": [],
     "ask": []

@@ -48,7 +48,7 @@ from propertyDataGather.common import (
     log_workflow_start,
     log_workflow_complete
 )
-from propertyDataGather.common.osm_config import calculate_radius_bbox
+from propertyDataGather.common.osm_config import calculate_radius_bbox, haversine_distance_miles
 from propertyDataGather.functions.geocoding import get_coordinates, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
 from propertyDataGather.functions.boundary_builder import build_boundary_polygon, expand_boundary_polygon
@@ -915,37 +915,59 @@ class NewRentalWorkflowOrchestrator:
         Each data type (sales_data and each apartment comp type) is filtered independently.
         If a filtered count is below the threshold, that specific data type's polygon
         is expanded independently of others.
+
+        When no polygon is available but target coordinates exist, falls back to
+        distance-based filtering (selecting the N closest comps to target).
         """
         step_start = time.time()
 
         # Check if polygon is available
-        if not self.state.data.boundary_polygon or not self.state.data.boundary_polygon.polygon:
-            logger.warning("No polygon available for filtering, skipping formatted output")
-            self.state.skip_step(WorkflowStep.FORMATTED_OUTPUT, 'No polygon available', 'boundary_analysis')
+        has_polygon = (self.state.data.boundary_polygon and
+                       self.state.data.boundary_polygon.polygon)
+
+        # Check if we can do any filtering at all
+        if not has_polygon and not self._target_coords:
+            logger.warning("No polygon or target coordinates available, skipping formatted output")
+            self.state.skip_step(WorkflowStep.FORMATTED_OUTPUT, 'No geographic data available', 'boundary_analysis')
             return
 
-        original_polygon = self.state.data.boundary_polygon.polygon
+        if not has_polygon:
+            logger.info("No polygon available, using distance-based fallback filtering")
+
+        original_polygon = self.state.data.boundary_polygon.polygon if has_polygon else None
         formatted_output = FormattedOutput()
 
         try:
             # Build input property info from all collected data
             formatted_output.input_property = self._build_input_property_info()
 
-            # Filter and analyze sales data (with independent expansion)
+            # Filter and analyze sales data
             if self.state.data.sales_data and self.state.data.sales_data.sales:
-                formatted_output.sales_data = self._filter_sales_with_expansion(original_polygon)
-                logger.info(f"Sales data: {formatted_output.sales_data.filtered_count}/{formatted_output.sales_data.original_count} "
-                           f"(expanded: {formatted_output.sales_data.is_expanded})")
+                if has_polygon:
+                    formatted_output.sales_data = self._filter_sales_with_expansion(original_polygon)
+                    logger.info(f"Sales data: {formatted_output.sales_data.filtered_count}/{formatted_output.sales_data.original_count} "
+                               f"(expanded: {formatted_output.sales_data.is_expanded})")
+                else:
+                    formatted_output.sales_data = self._filter_sales_by_distance()
+                    logger.info(f"Sales data (distance fallback): {formatted_output.sales_data.filtered_count} "
+                               f"closest of {formatted_output.sales_data.original_count}")
 
             # Filter and analyze apartment comps - EACH TYPE INDEPENDENTLY
             if self.state.data.apartment_comps:
                 formatted_output.apartment_comps = {}
                 for unit_key, comp_data in self.state.data.apartment_comps.items():
-                    filtered = self._filter_apartment_comp_with_expansion(original_polygon, unit_key, comp_data)
+                    if has_polygon:
+                        filtered = self._filter_apartment_comp_with_expansion(original_polygon, unit_key, comp_data)
+                    else:
+                        filtered = self._filter_apartment_comp_by_distance(unit_key, comp_data)
                     if filtered:
                         formatted_output.apartment_comps[unit_key] = filtered
-                        logger.info(f"Apartment comps {unit_key}: {filtered.filtered_count}/{filtered.original_count} "
-                                   f"(expanded: {filtered.is_expanded})")
+                        if has_polygon:
+                            logger.info(f"Apartment comps {unit_key}: {filtered.filtered_count}/{filtered.original_count} "
+                                       f"(expanded: {filtered.is_expanded})")
+                        else:
+                            logger.info(f"Apartment comps {unit_key} (distance fallback): {filtered.filtered_count} "
+                                       f"closest of {filtered.original_count}")
 
             self.state.data.formatted_output = formatted_output
             self.state.complete_step(WorkflowStep.FORMATTED_OUTPUT,
@@ -1389,6 +1411,112 @@ class NewRentalWorkflowOrchestrator:
             filtered_count=len(filtered_entries),
             original_count=len(comp_data.listings),
             rent_summary=rent_summary
+        )
+
+    # =========================================================================
+    # Distance-Based Fallback Filtering (when polygon unavailable)
+    # =========================================================================
+
+    def _filter_sales_by_distance(self) -> FilteredSalesData:
+        """
+        Filter sales data by distance to target when polygon is unavailable.
+
+        Selects the N closest sales comps to the target property, where N is
+        configured by fallback_comp_count. If fewer than N comps exist, returns all.
+        """
+        sales_data = self.state.data.sales_data
+        # _target_coords is stored as (lon, lat) for GeoJSON compatibility
+        target_lat, target_lon = self._target_coords[1], self._target_coords[0]
+
+        # Calculate distance for each sale with valid coordinates
+        sales_with_distance = []
+        for sale in sales_data.sales:
+            if sale.lat is not None and sale.lon is not None:
+                distance = haversine_distance_miles(target_lat, target_lon, sale.lat, sale.lon)
+                sales_with_distance.append((distance, sale))
+
+        # Sort by distance and take closest N
+        sales_with_distance.sort(key=lambda x: x[0])
+        limit = min(self.config.fallback_comp_count, len(sales_with_distance))
+        closest_sales = [self._calculate_price_per_sqft(sale) for _, sale in sales_with_distance[:limit]]
+
+        # Calculate five-number summary for price per square foot
+        price_per_sqft_values = [s.price_per_sqft for s in closest_sales if s.price_per_sqft is not None]
+
+        price_summary = None
+        if price_per_sqft_values:
+            summary_result = get_five_number_summary({
+                'values': price_per_sqft_values,
+                'field_name': 'price_per_sqft'
+            })
+            if summary_result.success or summary_result.data:
+                price_summary = FiveNumberSummaryResult(**summary_result.data)
+                if summary_result.error_code:
+                    price_summary.error_code = summary_result.error_code.value
+
+        return FilteredSalesData(
+            filtered_addresses=closest_sales,
+            filtered_count=len(closest_sales),
+            original_count=len(sales_data.sales),
+            price_summary=price_summary,
+            is_expanded=False,
+            filtering_method="distance_fallback"
+        )
+
+    def _filter_apartment_comp_by_distance(
+        self,
+        unit_key: str,
+        comp_data: ApartmentCompData
+    ) -> Optional[FilteredApartmentData]:
+        """
+        Filter apartment comps by distance to target when polygon is unavailable.
+
+        Selects the N closest apartment comps to the target property, where N is
+        configured by fallback_comp_count. If fewer than N comps exist, returns all.
+        """
+        # _target_coords is stored as (lon, lat) for GeoJSON compatibility
+        target_lat, target_lon = self._target_coords[1], self._target_coords[0]
+
+        # Calculate distance for each listing with valid coordinates
+        listings_with_distance = []
+        for listing in comp_data.listings:
+            if listing.lat is not None and listing.lon is not None:
+                distance = haversine_distance_miles(target_lat, target_lon, listing.lat, listing.lon)
+                listings_with_distance.append((distance, listing))
+
+        if not listings_with_distance:
+            return None
+
+        # Sort by distance and take closest N
+        listings_with_distance.sort(key=lambda x: x[0])
+        limit = min(self.config.fallback_comp_count, len(listings_with_distance))
+        closest_listings = [self._calculate_rent_per_sqft(listing) for _, listing in listings_with_distance[:limit]]
+
+        # Only include entries with valid rent_per_sqft for analysis
+        filtered_entries = [entry for entry in closest_listings if entry.rent_per_sqft is not None]
+
+        # Calculate five-number summary for rent per square foot
+        rent_per_sqft_values = [entry.rent_per_sqft for entry in filtered_entries if entry.rent_per_sqft is not None]
+
+        rent_summary = None
+        if rent_per_sqft_values:
+            summary_result = get_five_number_summary({
+                'values': rent_per_sqft_values,
+                'field_name': 'rent_per_sqft'
+            })
+            if summary_result.success or summary_result.data:
+                rent_summary = FiveNumberSummaryResult(**summary_result.data)
+                if summary_result.error_code:
+                    rent_summary.error_code = summary_result.error_code.value
+
+        return FilteredApartmentData(
+            unit_key=unit_key,
+            filtered_addresses=filtered_entries,
+            filtered_count=len(filtered_entries),
+            original_count=len(comp_data.listings),
+            rent_summary=rent_summary,
+            is_expanded=False,
+            filtering_method="distance_fallback"
         )
 
     # =========================================================================

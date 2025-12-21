@@ -90,7 +90,3 @@ class Address(BaseModel):
     zip: str
 
 
-class ExtendedAddress(Address):
-    """Address with optional county and neighborhood."""
-    county: Optional[str] = None
-    neighborhood: Optional[str] = None

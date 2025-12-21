@@ -4,7 +4,6 @@ import { data } from './data/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
-import { testGeocoding } from './functions/testGeocoding/resource_python';
 import { getEntitlements } from './functions/getEntitlements/resource';
 import { grantBetaAccess } from './functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from './functions/revokeBetaAccess/resource';
@@ -21,7 +20,6 @@ const backend = defineBackend({
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
-  testGeocoding,
   getEntitlements,
   grantBetaAccess,
   revokeBetaAccess,

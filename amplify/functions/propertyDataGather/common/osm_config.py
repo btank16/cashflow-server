@@ -1,15 +1,13 @@
 """Configuration for OpenStreetMap way types and Overpass API queries."""
 
 import math
-from typing import Dict, List, Any
+from typing import Dict, List
 
 # Radius configuration
 MILES_TO_DEGREES_LAT = 0.0144927536  # 1 mile ≈ 0.0145 degrees latitude
 DEFAULT_RADIUS_MILES = 2.0
 
 # OSM Way Types - Used for Overpass API queries
-# Note: "_link" roads (ramps/connectors) are excluded - they're short and
-# don't create meaningful polygon boundaries
 OSM_WAY_TYPES: Dict[str, List[str]] = {
     "highways": [
         "motorway",
@@ -51,6 +49,8 @@ HARD_BOUNDARY_TYPES: List[str] = [
     # Major highways - act as neighborhood dividers (never cross)
     "motorway",
     "trunk",
+    # Major waterways - act as neighborhood dividers (never cross)
+    "river",
 ]
 
 TIER_THREE_BOUNDARY_TYPES: List[str] = [
@@ -71,8 +71,7 @@ SOFT_BOUNDARY_TYPES: List[str] = [
     "miniature",
     "monorail",
     "funicular",
-    # Waterways - can expand through
-    "river",
+    # Waterways - can expand through (except river, which is hard)
     "stream",
     "tidal_channel",
     "canal",
@@ -99,8 +98,9 @@ WAY_BOUNDARY_CLASS: Dict[str, str] = {
     "miniature": "soft",
     "monorail": "soft",
     "funicular": "soft",
+    # Hard boundaries - waterways
+    "river": "hard",
     # Soft boundaries - waterways
-    "river": "soft",
     "stream": "soft",
     "tidal_channel": "soft",
     "canal": "soft",
@@ -269,54 +269,37 @@ def calculate_radius_bbox(
     ]
 
 
-def check_bbox_intersection(bbox1: List[float], bbox2: List[float]) -> Dict[str, Any]:
+def haversine_distance_miles(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float
+) -> float:
     """
-    Check if two bounding boxes intersect and calculate overlap.
+    Calculate the great-circle distance between two points using the Haversine formula.
 
     Args:
-        bbox1: [min_lat, max_lat, min_lon, max_lon]
-        bbox2: [min_lat, max_lat, min_lon, max_lon]
+        lat1: Latitude of first point
+        lon1: Longitude of first point
+        lat2: Latitude of second point
+        lon2: Longitude of second point
 
     Returns:
-        {
-            'intersects': bool,
-            'radius_crosses_zip': bool,
-            'overlap_area_sq_degrees': float
-        }
+        Distance in miles
 
     Example:
-        >>> radius_bbox = [41.46, 41.49, -81.80, -81.77]
-        >>> zip_bbox = [41.45, 41.52, -81.85, -81.75]
-        >>> result = check_bbox_intersection(radius_bbox, zip_bbox)
-        >>> result['radius_crosses_zip']  # True if radius extends beyond zip
+        >>> distance = haversine_distance_miles(41.476, -81.786, 41.480, -81.790)
+        >>> # Returns distance in miles between two Cleveland addresses
     """
-    min_lat1, max_lat1, min_lon1, max_lon1 = bbox1
-    min_lat2, max_lat2, min_lon2, max_lon2 = bbox2
+    R = 3959  # Earth's radius in miles
 
-    # Check if bboxes overlap
-    intersects = not (
-        max_lat1 < min_lat2 or max_lat2 < min_lat1 or
-        max_lon1 < min_lon2 or max_lon2 < min_lon1
-    )
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
 
-    # Check if bbox1 extends beyond bbox2 boundaries (radius crosses zip)
-    crosses = (
-        min_lat1 < min_lat2 or max_lat1 > max_lat2 or
-        min_lon1 < min_lon2 or max_lon1 > max_lon2
-    )
+    a = (math.sin(delta_lat / 2) ** 2 +
+         math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-    # Calculate overlap area if intersects
-    overlap_area = 0.0
-    if intersects:
-        overlap_min_lat = max(min_lat1, min_lat2)
-        overlap_max_lat = min(max_lat1, max_lat2)
-        overlap_min_lon = max(min_lon1, min_lon2)
-        overlap_max_lon = min(max_lon1, max_lon2)
-
-        overlap_area = (overlap_max_lat - overlap_min_lat) * (overlap_max_lon - overlap_min_lon)
-
-    return {
-        'intersects': intersects,
-        'radius_crosses_zip': crosses,
-        'overlap_area_sq_degrees': overlap_area
-    }
+    return R * c

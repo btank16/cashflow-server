@@ -1,122 +1,7 @@
-"""Logging utilities with PII protection for Lambda functions."""
+"""Logging utilities for Lambda functions."""
 
-import hashlib
 import logging
-from typing import Dict, Any, List, Optional, Set
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-# Fields that should never be logged in full (PII)
-PII_FIELDS: Set[str] = {
-    'street',
-    'address',
-    'street_address',
-    'full_address',
-    'addressLine1',
-    'addressLine2',
-    'formattedAddress'
-}
-
-# Fields that are safe to log
-SAFE_FIELDS: Set[str] = {
-    'city',
-    'state',
-    'zip',
-    'zipCode',
-    'county',
-    'config',
-    'property_type',
-    'propertyType',
-    'bedrooms',
-    'bathrooms'
-}
-
-
-# =============================================================================
-# PII Masking Functions
-# =============================================================================
-
-def mask_pii(value: str, show_chars: int = 4) -> str:
-    """
-    Mask a PII value, showing only last N characters.
-
-    Args:
-        value: The sensitive value to mask
-        show_chars: Number of characters to show at end
-
-    Returns:
-        Masked string like "***Main St"
-    """
-    if not value or len(value) <= show_chars:
-        return '***'
-    return '***' + value[-show_chars:]
-
-
-def hash_for_correlation(value: str) -> str:
-    """
-    Create a short hash for log correlation without exposing the value.
-
-    This allows tracking related log entries without exposing PII.
-
-    Args:
-        value: Value to hash
-
-    Returns:
-        8-character hash string for correlation
-    """
-    if not value:
-        return 'empty'
-    return hashlib.sha256(value.encode()).hexdigest()[:8]
-
-
-def sanitize_for_logging(
-    data: Dict[str, Any],
-    pii_fields: Optional[Set[str]] = None,
-    include_hash: bool = True
-) -> Dict[str, Any]:
-    """
-    Create a log-safe version of a dictionary by masking PII.
-
-    Args:
-        data: Original data dict
-        pii_fields: Additional fields to treat as PII
-        include_hash: Include hash of PII for correlation
-
-    Returns:
-        Safe dict for logging
-    """
-    all_pii_fields = PII_FIELDS | (pii_fields or set())
-    safe_data = {}
-
-    for key, value in data.items():
-        key_lower = key.lower()
-
-        if key_lower in {f.lower() for f in all_pii_fields}:
-            # PII field - redact
-            if include_hash and isinstance(value, str):
-                safe_data[key] = f"[REDACTED:{hash_for_correlation(value)}]"
-            else:
-                safe_data[key] = '[REDACTED]'
-        elif key_lower in {f.lower() for f in SAFE_FIELDS}:
-            # Safe field - include as-is
-            safe_data[key] = value
-        elif isinstance(value, dict):
-            # Recursively sanitize nested dicts
-            safe_data[key] = sanitize_for_logging(value, pii_fields, include_hash)
-        elif isinstance(value, list):
-            # For lists, sanitize each item if it's a dict
-            safe_data[key] = [
-                sanitize_for_logging(item, pii_fields, include_hash)
-                if isinstance(item, dict) else item
-                for item in value
-            ]
-        else:
-            # Unknown field - be conservative, filter it
-            safe_data[key] = '[FILTERED]'
-
-    return safe_data
+from typing import Dict, Any, List, Optional
 
 
 # =============================================================================
@@ -129,23 +14,21 @@ def log_workflow_start(
     logger: logging.Logger
 ) -> None:
     """
-    Log workflow start with safe event representation.
+    Log workflow start with event details.
 
     Args:
         event: The incoming event
         workflow_name: Name of the workflow for logging
         logger: Logger instance
     """
-    # Log only safe identifiers
+    street = event.get('street', 'unknown')
     city = event.get('city', 'unknown')
     state = event.get('state', 'unknown')
     zip_code = event.get('zip', event.get('zipCode', 'unknown'))
-    street_hash = hash_for_correlation(event.get('street', ''))
 
     logger.info(
         f"{workflow_name} started: "
-        f"city={city}, state={state}, zip={zip_code}, "
-        f"address_hash={street_hash}"
+        f"street={street}, city={city}, state={state}, zip={zip_code}"
     )
 
 
@@ -194,11 +77,10 @@ def log_step_start(
     Args:
         step_name: Name of the step
         logger: Logger instance
-        extra_context: Optional safe context to include
+        extra_context: Optional context to include
     """
     if extra_context:
-        safe_context = sanitize_for_logging(extra_context, include_hash=False)
-        logger.info(f"Step '{step_name}' starting: {safe_context}")
+        logger.info(f"Step '{step_name}' starting: {extra_context}")
     else:
         logger.info(f"Step '{step_name}' starting")
 
@@ -218,14 +100,14 @@ def log_step_complete(
         success: Whether step succeeded
         execution_time_ms: Execution time in milliseconds
         logger: Logger instance
-        error: Error message if failed (will be sanitized)
+        error: Error message if failed
     """
     status = 'completed' if success else 'failed'
 
     if success:
         logger.info(f"Step '{step_name}' {status} in {execution_time_ms}ms")
     else:
-        # Sanitize error message in case it contains PII
+        # Truncate long error messages
         safe_error = error[:200] if error else 'unknown error'
         logger.warning(f"Step '{step_name}' {status} in {execution_time_ms}ms: {safe_error}")
 
@@ -264,7 +146,7 @@ def log_error_safely(
     include_traceback: bool = True
 ) -> None:
     """
-    Log an error safely, avoiding PII in error messages.
+    Log an error with truncated message to avoid excessively long logs.
 
     Args:
         error: The exception that occurred
@@ -272,8 +154,7 @@ def log_error_safely(
         logger: Logger instance
         include_traceback: Whether to include stack trace
     """
-    # Error messages might contain addresses or other PII
-    # Only log the exception type and first 200 chars of message
+    # Truncate long error messages
     error_type = type(error).__name__
     error_msg = str(error)[:200] if str(error) else 'no message'
 
