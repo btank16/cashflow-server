@@ -17,19 +17,6 @@ from .comparable_sales import get_comparable_sales, ComparableSalesInput, Compar
 from .similar_areas import get_similar_areas, SimilarAreasInput, SimilarAreasOutput
 from .apartment_search import get_apartment_comps, ApartmentCompInput, ApartmentCompOutput, deduplicate_addresses
 from .geocoding import get_coordinates, GeocodingInput, batch_geocode_addresses
-from .zillow_zip_search import (
-    search_zillow_by_zip,
-    ZillowZipSearchInput,
-    ZillowZipSearchOutput,
-    ProcessedZillowData,
-    ZillowPropertyInfo,
-    ZillowPropertyStatistics,
-    validate_zip_codes,
-    build_zillow_search_url,
-    get_home_type_stats,
-    get_addresses_by_home_type,
-    filter_by_price_range
-)
 from .metro_area_lookup import is_valid_city
 from .rentcast_data import (
     get_rentcast_property_records,
@@ -111,18 +98,6 @@ __all__ = [
     'get_coordinates',
     'GeocodingInput',
     'batch_geocode_addresses',
-    # Zillow search
-    'search_zillow_by_zip',
-    'ZillowZipSearchInput',
-    'ZillowZipSearchOutput',
-    'ProcessedZillowData',
-    'ZillowPropertyInfo',
-    'ZillowPropertyStatistics',
-    'validate_zip_codes',
-    'build_zillow_search_url',
-    'get_home_type_stats',
-    'get_addresses_by_home_type',
-    'filter_by_price_range',
     # Metro area lookup
     'is_valid_city',
     # Rentcast data
