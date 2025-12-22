@@ -37,7 +37,9 @@ from .median_analysis import (
     FiveNumberSummaryInput,
     FiveNumberSummaryOutput,
     RangeOutput,
-    SingleValueOutput
+    SingleValueOutput,
+    filter_iqr_outliers,
+    OutlierFilterResult
 )
 from .address_checker import (
     check_addresses_against_polygon,
@@ -107,6 +109,8 @@ __all__ = [
     'FiveNumberSummaryOutput',
     'RangeOutput',
     'SingleValueOutput',
+    'filter_iqr_outliers',
+    'OutlierFilterResult',
     # Address checker
     'check_addresses_against_polygon',
     'batch_classify_addresses',

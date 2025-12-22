@@ -63,7 +63,7 @@ from propertyDataGather.functions.property_tax import get_property_tax
 from propertyDataGather.functions.gemini_property_sales import get_recent_property_sales
 from propertyDataGather.functions.gemini_apartment_comps import get_gemini_apartment_comps
 from propertyDataGather.functions.address_checker import check_addresses_against_polygon
-from propertyDataGather.functions.median_analysis import get_five_number_summary
+from propertyDataGather.functions.median_analysis import get_five_number_summary, filter_iqr_outliers
 
 logger = logging.getLogger(__name__)
 
@@ -1263,14 +1263,31 @@ class NewRentalWorkflowOrchestrator:
                         else:
                             filtered_entries.append(entry_with_per_sqft)
 
-        # Calculate five-number summary
+        # Extract per-sqft values for outlier detection
         if data_type == "sales":
-            per_sqft_values = [e.price_per_sqft for e in filtered_entries if e.price_per_sqft is not None]
+            per_sqft_values = [e.price_per_sqft for e in filtered_entries]
             field_name = 'price_per_sqft'
         else:
-            per_sqft_values = [e.rent_per_sqft for e in filtered_entries if e.rent_per_sqft is not None]
+            per_sqft_values = [e.rent_per_sqft for e in filtered_entries]
             field_name = 'rent_per_sqft'
 
+        # Apply IQR outlier filtering
+        outlier_result = filter_iqr_outliers(
+            values=per_sqft_values,
+            min_count=self.config.min_count_for_outliers,
+            iqr_multiplier=self.config.iqr_multiplier
+        )
+
+        # Remove outliers from filtered_entries
+        if outlier_result.was_applied and outlier_result.outlier_count > 0:
+            filtered_entries = [filtered_entries[i] for i in outlier_result.filtered_indices]
+            # Update per_sqft_values to match filtered entries
+            if data_type == "sales":
+                per_sqft_values = [e.price_per_sqft for e in filtered_entries if e.price_per_sqft is not None]
+            else:
+                per_sqft_values = [e.rent_per_sqft for e in filtered_entries if e.rent_per_sqft is not None]
+
+        # Calculate five-number summary on cleaned data
         summary = None
         if per_sqft_values:
             summary_result = get_five_number_summary({
@@ -1340,14 +1357,31 @@ class NewRentalWorkflowOrchestrator:
         if data_type == "apartment":
             closest_entries = [e for e in closest_entries if e.rent_per_sqft is not None]
 
-        # Calculate five-number summary
+        # Extract per-sqft values for outlier detection
         if data_type == "sales":
-            per_sqft_values = [e.price_per_sqft for e in closest_entries if e.price_per_sqft is not None]
+            per_sqft_values = [e.price_per_sqft for e in closest_entries]
             field_name = 'price_per_sqft'
         else:
-            per_sqft_values = [e.rent_per_sqft for e in closest_entries if e.rent_per_sqft is not None]
+            per_sqft_values = [e.rent_per_sqft for e in closest_entries]
             field_name = 'rent_per_sqft'
 
+        # Apply IQR outlier filtering
+        outlier_result = filter_iqr_outliers(
+            values=per_sqft_values,
+            min_count=self.config.min_count_for_outliers,
+            iqr_multiplier=self.config.iqr_multiplier
+        )
+
+        # Remove outliers from closest_entries
+        if outlier_result.was_applied and outlier_result.outlier_count > 0:
+            closest_entries = [closest_entries[i] for i in outlier_result.filtered_indices]
+            # Update per_sqft_values to match filtered entries
+            if data_type == "sales":
+                per_sqft_values = [e.price_per_sqft for e in closest_entries if e.price_per_sqft is not None]
+            else:
+                per_sqft_values = [e.rent_per_sqft for e in closest_entries if e.rent_per_sqft is not None]
+
+        # Calculate five-number summary on cleaned data
         summary = None
         if per_sqft_values:
             summary_result = get_five_number_summary({

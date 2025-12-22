@@ -61,6 +61,9 @@ class WorkflowConfig(BaseModel):
     min_data_for_tier_three: int = 2  # If ≤ this after tier 2, trigger tier 3 (crosses primary roads)
     # Distance fallback settings (when polygon unavailable)
     fallback_comp_count: int = 5  # Number of closest comps to return when polygon unavailable
+    # Outlier detection settings (IQR method)
+    min_count_for_outliers: int = 8  # Minimum data points required to apply outlier detection
+    iqr_multiplier: float = 1.5  # Multiplier for IQR to determine outlier bounds (1.5 is standard)
 
 
 # =============================================================================
