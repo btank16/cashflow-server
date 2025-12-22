@@ -8,7 +8,7 @@ Optimized version with:
 
 from typing import Dict, Any, List, Tuple, Optional, Set
 from collections import defaultdict
-from shapely.geometry import LineString, Point, Polygon, MultiPoint, MultiLineString
+from shapely.geometry import LineString, Point, Polygon, MultiPoint
 from shapely.ops import unary_union, polygonize
 from shapely.strtree import STRtree
 import networkx as nx
@@ -82,6 +82,9 @@ class BoundaryBuilder:
         # Store polygon data for adjacency analysis
         self.all_polygons: List[Polygon] = []
         self.polygon_adjacency: Dict[int, Dict[int, str]] = {}
+
+        # Edge-to-polygon mapping for efficient adjacency building
+        self._edge_to_polygons: Dict[Tuple, List[int]] = {}
 
         logger.info(f"BoundaryBuilder initialized with {len(osm_ways)} ways")
 
@@ -386,7 +389,11 @@ class BoundaryBuilder:
         logger.info(f"Built graph with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
 
     def _extract_faces(self) -> List[Polygon]:
-        """Extract all faces (closed regions) from the planar graph."""
+        """Extract all faces (closed regions) from the planar graph.
+
+        Also builds edge-to-polygon mapping stored in self._edge_to_polygons
+        for efficient adjacency computation.
+        """
         try:
             all_lines = []
 
@@ -398,14 +405,29 @@ class BoundaryBuilder:
             # Find all polygons formed by these lines
             polygons = list(polygonize(all_lines))
 
-            # Filter valid polygons
+            # Filter valid polygons and build edge-to-polygon mapping
             valid_polygons = []
+            edge_to_polygons: Dict[Tuple, List[int]] = defaultdict(list)
+
             for polygon in polygons:
                 area = polygon.area
                 if POLYGON_MIN_AREA <= area <= POLYGON_MAX_AREA:
+                    poly_idx = len(valid_polygons)
                     valid_polygons.append(polygon)
+
+                    # Extract edges from polygon boundary and map to this polygon
+                    coords = list(polygon.exterior.coords)
+                    for i in range(len(coords) - 1):
+                        # Snap to grid for consistency with edge_metadata keys
+                        p1 = snap_to_grid(coords[i])
+                        p2 = snap_to_grid(coords[i + 1])
+                        edge_key = tuple(sorted([p1, p2], key=lambda p: (p[0], p[1])))
+                        edge_to_polygons[edge_key].append(poly_idx)
                 else:
                     logger.debug(f"Filtered polygon with area {area} (outside valid range)")
+
+            # Store for use in adjacency building
+            self._edge_to_polygons = dict(edge_to_polygons)
 
             logger.info(f"Extracted {len(valid_polygons)} valid polygons from {len(polygons)} total")
             return valid_polygons
@@ -418,82 +440,50 @@ class BoundaryBuilder:
         """
         Build adjacency graph between polygons with boundary classification.
 
+        Uses edge-centric approach for O(e) complexity instead of O(n²).
+        Iterates edges once and uses pre-computed edge_to_polygons mapping.
+
         Args:
             polygons: List of Shapely Polygon objects
 
         Returns:
             Dict mapping polygon_idx -> {adjacent_polygon_idx: boundary_class, ...}
 
-        The boundary_class is determined by the shared edge:
-        - "hard": Adjacent via motorway, trunk, primary, or bbox edge
+        The boundary_class is determined by the shared edge(s):
+        - "hard": Adjacent via motorway, trunk, or bbox edge (never crossed)
+        - "tier_three": Adjacent via primary roads (crossed only in tier 3 expansion)
         - "soft": Adjacent via secondary roads, railways, or waterways
+
+        When multiple edges exist between a polygon pair, uses the most
+        restrictive classification (hard > tier_three > soft).
         """
         adjacency: Dict[int, Dict[int, str]] = {i: {} for i in range(len(polygons))}
 
-        for i, poly1 in enumerate(polygons):
-            for j, poly2 in enumerate(polygons[i + 1:], start=i + 1):
-                # Check if polygons share an edge
-                shared_boundary = poly1.boundary.intersection(poly2.boundary)
+        # Priority for boundary classes (lower = more restrictive)
+        PRIORITY = {"hard": 0, "tier_three": 1, "soft": 2}
 
-                if shared_boundary.is_empty:
-                    continue
+        # Track all edges between each polygon pair
+        pair_edges: Dict[Tuple[int, int], List[str]] = defaultdict(list)
 
-                # Calculate length of shared boundary
-                if hasattr(shared_boundary, 'length'):
-                    if shared_boundary.length < 1e-8:
-                        continue  # Not a significant shared edge
-                else:
-                    continue
+        # Iterate edges once - O(e) complexity
+        for edge_key, poly_indices in self._edge_to_polygons.items():
+            if len(poly_indices) == 2:
+                # This edge is shared by exactly 2 polygons - they're adjacent
+                i, j = sorted(poly_indices)
 
-                # Determine boundary type of the shared edge
-                boundary_class = self._classify_shared_boundary(shared_boundary)
+                # Direct lookup of boundary class from edge metadata
+                boundary_class = self.edge_metadata.get(edge_key, {}).get("boundary_class", "soft")
+                pair_edges[(i, j)].append(boundary_class)
 
-                adjacency[i][j] = boundary_class
-                adjacency[j][i] = boundary_class
+        # For each polygon pair, use most restrictive classification
+        for (i, j), classes in pair_edges.items():
+            # Most restrictive wins (hard > tier_three > soft)
+            final_class = min(classes, key=lambda c: PRIORITY.get(c, 2))
+            adjacency[i][j] = final_class
+            adjacency[j][i] = final_class
 
+        logger.info(f"Built polygon adjacency graph with {sum(len(adj) for adj in adjacency.values()) // 2} edges")
         return adjacency
-
-    def _classify_shared_boundary(self, shared_boundary) -> str:
-        """
-        Classify the shared boundary between two polygons as hard or soft.
-
-        Samples points along the shared boundary and checks edge metadata.
-        If ANY part of the shared edge is a hard boundary, returns "hard".
-        """
-        sample_points = []
-
-        if isinstance(shared_boundary, Point):
-            sample_points.append((shared_boundary.x, shared_boundary.y))
-        elif isinstance(shared_boundary, LineString):
-            # Sample at 25%, 50%, 75% along the line
-            for frac in [0.25, 0.5, 0.75]:
-                point = shared_boundary.interpolate(frac, normalized=True)
-                sample_points.append((point.x, point.y))
-        elif isinstance(shared_boundary, MultiLineString):
-            for geom in shared_boundary.geoms:
-                if isinstance(geom, LineString) and geom.length > 1e-8:
-                    point = geom.interpolate(0.5, normalized=True)
-                    sample_points.append((point.x, point.y))
-
-        # Check each sample point against edge metadata
-        for sample_coords in sample_points:
-            boundary_class = self._get_boundary_class_at_point(sample_coords)
-            if boundary_class == "hard":
-                return "hard"
-
-        return "soft"
-
-    def _get_boundary_class_at_point(self, coords: Tuple[float, float]) -> str:
-        """Get the boundary class for the edge at a specific point."""
-        sample_point = Point(coords)
-
-        # Find the edge that contains this point
-        for edge_key, metadata in self.edge_metadata.items():
-            edge_line = LineString([edge_key[0], edge_key[1]])
-            if edge_line.distance(sample_point) < 1e-6:
-                return metadata.get("boundary_class", "soft")
-
-        return "soft"
 
     def build_all_polygons(self) -> List[Polygon]:
         """
