@@ -216,7 +216,7 @@ async function atomicIncrementIfUnderLimit(
         TableName: tableName,
         Key: { userId, periodFunction: dailyPeriodKey },
         UpdateExpression:
-          'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now',
+          'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
         // Condition: count must not exist OR be less than limit
         ConditionExpression:
           'attribute_not_exists(#count) OR #count < :limit',
@@ -272,7 +272,7 @@ async function incrementUsageWithRetry(
           TableName: tableName,
           Key: { userId, periodFunction: dailyPeriodKey },
           UpdateExpression:
-            'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now',
+            'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
           ExpressionAttributeNames: {
             '#count': 'count',
             '#ttl': 'ttl',

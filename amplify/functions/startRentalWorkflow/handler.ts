@@ -130,7 +130,6 @@ export const handler = async (
     const jobRecord = {
       id: jobId,
       owner: userId,  // Required for allow.owner() authorization
-      user_id: userId,
       status: 'pending',
       current_step: 'queued',
       completed_steps: JSON.stringify([]),

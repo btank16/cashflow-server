@@ -51,6 +51,7 @@ class WorkflowConfig(BaseModel):
     default_loan_type: str = "30-year fixed"
     sales_time_period: int = 6  # Number of months
     sales_limit: int = 50  # Max number of sales to find
+    rental_listings_limit: int = 500  # Max number of rental listings to fetch
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
     is_primary_residence: bool = False
@@ -173,9 +174,9 @@ class PropertyInfoData(BaseModel):
     lot_size: Optional[float] = None
 
     # Common fields
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
-    square_footage: Optional[int] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
+    sqft: Optional[int] = None
 
     # Multi-family unit breakdown
     total_units: Optional[int] = None
@@ -209,8 +210,8 @@ class ApartmentCompEntry(BaseModel):
     """Individual apartment comp entry."""
     address: str
     rent: Optional[float] = None
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
     sqft: Optional[int] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
@@ -238,6 +239,7 @@ class FiveNumberSummaryResult(BaseModel):
     median: Optional[float] = None
     q3: Optional[float] = None
     max: Optional[float] = None
+    value: Optional[float] = None  # Only populated when result_type == "single"
     count: int
     result_type: str  # "full", "range", or "single"
     field_name: Optional[str] = None
@@ -259,9 +261,9 @@ class InputPropertyInfo(BaseModel):
 
     # Property details
     property_type: Optional[str] = None
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
-    square_footage: Optional[int] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
+    sqft: Optional[int] = None
     year_built: Optional[int] = None
     lot_size: Optional[float] = None
 

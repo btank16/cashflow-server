@@ -407,9 +407,9 @@ class NewRentalWorkflowOrchestrator:
             longitude=property_data.get('longitude'),
             year_built=property_data.get('yearBuilt'),
             lot_size=property_data.get('lotSize'),
-            bedrooms=property_data.get('bedrooms'),
-            bathrooms=property_data.get('bathrooms'),
-            square_footage=property_data.get('squareFootage'),
+            beds=property_data.get('bedrooms'),
+            baths=property_data.get('bathrooms'),
+            sqft=property_data.get('squareFootage'),
             raw_data=property_data
         )
 
@@ -546,9 +546,9 @@ class NewRentalWorkflowOrchestrator:
                     property_info = PropertyInfoData(
                         source='gemini',
                         property_type=property_type,
-                        bedrooms=sum(unit_beds),
-                        bathrooms=sum(unit_baths),
-                        square_footage=sum(unit_sqft),
+                        beds=sum(unit_beds),
+                        baths=sum(unit_baths),
+                        sqft=sum(unit_sqft),
                         total_units=total_units,
                         units=[UnitData(beds=unit_beds[i], baths=unit_baths[i], sqft=unit_sqft[i])
                                for i in range(min(len(unit_beds), len(unit_baths), len(unit_sqft)))]
@@ -823,7 +823,7 @@ class NewRentalWorkflowOrchestrator:
                 'latitude': lat, 'longitude': lon,
                 'radius': self.config.search_radius_miles,
                 'bedrooms': str(beds), 'bathrooms': str(baths),
-                'limit': 500
+                'limit': self.config.rental_listings_limit
             }, self.rentcast_client)
             api_calls += 1
 
@@ -849,8 +849,8 @@ class NewRentalWorkflowOrchestrator:
             ApartmentCompEntry(
                 address=listing.get('formattedAddress', ''),
                 rent=listing.get('price'),
-                bedrooms=listing.get('bedrooms'),
-                bathrooms=listing.get('bathrooms'),
+                beds=listing.get('bedrooms'),
+                baths=listing.get('bathrooms'),
                 sqft=listing.get('squareFootage'),
                 lat=listing.get('latitude'),
                 lon=listing.get('longitude')
@@ -927,8 +927,8 @@ class NewRentalWorkflowOrchestrator:
                     entry = ApartmentCompEntry(
                         address=addr,
                         rent=rent_val,
-                        bedrooms=beds_val,
-                        bathrooms=baths_val,
+                        beds=beds_val,
+                        baths=baths_val,
                         sqft=sqft_val
                     )
 
@@ -1123,9 +1123,9 @@ class NewRentalWorkflowOrchestrator:
         # Add property details
         if data.property_info:
             input_property.property_type = data.property_info.property_type
-            input_property.bedrooms = data.property_info.bedrooms
-            input_property.bathrooms = data.property_info.bathrooms
-            input_property.square_footage = data.property_info.square_footage
+            input_property.beds = data.property_info.beds
+            input_property.baths = data.property_info.baths
+            input_property.sqft = data.property_info.sqft
             input_property.year_built = data.property_info.year_built
             input_property.lot_size = data.property_info.lot_size
             input_property.total_units = data.property_info.total_units

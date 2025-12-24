@@ -147,7 +147,6 @@ const schema = a.schema({
   // Workflow job tracking for async operations
   WorkflowJob: a
     .model({
-      user_id: a.string(),
       status: a.enum(['pending', 'processing', 'completed', 'failed']),
       current_step: a.string(),
       completed_steps: a.json(),
@@ -156,10 +155,7 @@ const schema = a.schema({
       metadata: a.json(),
       error: a.string()
     })
-    .authorization(allow => [allow.owner()])
-    .secondaryIndexes(index => [
-      index('user_id')
-    ]),
+    .authorization(allow => [allow.owner()]),
 
   // Usage tracking for rate limiting
   // Note: Lambda functions access this via direct DynamoDB SDK calls

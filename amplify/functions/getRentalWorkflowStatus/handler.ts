@@ -72,8 +72,7 @@ export const handler = async (
     const job = result.Item;
 
     // Verify the job belongs to the requesting user (defense-in-depth)
-    // Check both 'owner' (Amplify convention) and 'user_id' (our custom field)
-    if (job.owner !== userId && job.user_id !== userId) {
+    if (job.owner !== userId) {
       console.warn('Unauthorized access attempt for job:', jobId);
       return {
         jobId,
