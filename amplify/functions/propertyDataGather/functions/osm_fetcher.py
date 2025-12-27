@@ -4,7 +4,6 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 import logging
 import requests
-import time
 
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import (
@@ -17,14 +16,14 @@ from ..common.osm_config import (
     OSM_WAY_TYPES,
     OVERPASS_API_URL,
     OVERPASS_TIMEOUT,
-    OVERPASS_RATE_LIMIT_DELAY,
     build_overpass_query
+)
+from ..common.distributed_rate_limiter import (
+    acquire_rate_limit,
+    RateLimitService
 )
 
 logger = logging.getLogger(__name__)
-
-# Track last request time for rate limiting
-_last_overpass_request_time = 0.0
 
 
 class OSMFetchInput(BaseModel):
@@ -37,19 +36,15 @@ def _enforce_overpass_rate_limit():
     """
     Enforce Overpass API rate limit.
 
-    Overpass has no official rate limit but conservative 2-second delay is recommended.
+    Uses distributed rate limiting via DynamoDB to coordinate across
+    multiple Lambda invocations. Overpass is a free service with no
+    official rate limit, but a conservative 1 request per 2 seconds
+    is used to be respectful.
     """
-    global _last_overpass_request_time
-
-    current_time = time.time()
-    time_since_last_request = current_time - _last_overpass_request_time
-
-    if time_since_last_request < OVERPASS_RATE_LIMIT_DELAY:
-        sleep_time = OVERPASS_RATE_LIMIT_DELAY - time_since_last_request
-        logger.debug(f"Overpass rate limiting: sleeping for {sleep_time:.2f} seconds")
-        time.sleep(sleep_time)
-
-    _last_overpass_request_time = time.time()
+    if not acquire_rate_limit(RateLimitService.OVERPASS, timeout=60.0):
+        logger.warning("Overpass rate limit timeout after 60s, proceeding anyway")
+    else:
+        logger.debug("Overpass rate limit slot acquired")
 
 
 def _parse_osm_ways(overpass_response: Dict[str, Any]) -> Dict[str, Any]:

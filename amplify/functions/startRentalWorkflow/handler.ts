@@ -25,6 +25,7 @@ interface StartWorkflowArgs {
   state: string;
   zip: string;
   timezone?: string;
+  config?: Record<string, unknown>;  // Optional workflow configuration
 }
 
 interface StartWorkflowResponse {
@@ -42,7 +43,7 @@ export const handler = async (
   console.log('startRentalWorkflow invoked');
 
   try {
-    const { street, city, state, zip, timezone = 'UTC' } = event.arguments;
+    const { street, city, state, zip, timezone = 'UTC', config } = event.arguments;
 
     // Security: Require authenticated user - no anonymous fallback
     const userId = (event.identity as any)?.sub ||
@@ -133,7 +134,7 @@ export const handler = async (
       status: 'pending',
       current_step: 'queued',
       completed_steps: JSON.stringify([]),
-      input: JSON.stringify({ street, city, state, zip }),
+      input: JSON.stringify({ street, city, state, zip, config }),
       result: null,
       metadata: null,
       error: null,
@@ -156,7 +157,7 @@ export const handler = async (
       FunctionName: WORKFLOW_LAMBDA_NAME,
       InvocationType: 'Event', // Async invocation
       Payload: Buffer.from(JSON.stringify({
-        arguments: { street, city, state, zip },
+        arguments: { street, city, state, zip, config },
         jobId: jobId,
         userId: userId
       }))

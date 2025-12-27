@@ -24,7 +24,8 @@ const schema = a.schema({
       city: a.string().required(),
       state: a.string().required(),
       zip: a.string().required(),
-      timezone: a.string()  // User's timezone for daily limit calculation
+      timezone: a.string(),  // User's timezone for daily limit calculation
+      config: a.json()  // Optional workflow configuration (e.g., { skip_rental_comps: true })
     })
     .returns(a.customType({
       jobId: a.string(),
@@ -59,7 +60,8 @@ const schema = a.schema({
       street: a.string().required(),
       city: a.string().required(),
       state: a.string().required(),
-      zip: a.string().required()
+      zip: a.string().required(),
+      config: a.json()  // Optional workflow configuration (e.g., { skip_rental_comps: true })
     })
     .returns(a.customType({
       success: a.boolean(),
@@ -171,6 +173,22 @@ const schema = a.schema({
     .identifier(['userId', 'periodFunction'])
     .authorization(allow => [
       allow.owner().to(['read'])
+    ]),
+
+  // Distributed rate limiting for external API calls (Nominatim, Rentcast, Overpass)
+  // Uses sliding window counter algorithm with DynamoDB atomic updates
+  // Note: Lambda functions access this via direct DynamoDB SDK calls
+  // Permissions granted in backend.ts
+  RateLimitCounter: a
+    .model({
+      service: a.string().required(),       // Service name: 'nominatim', 'rentcast', 'overpass'
+      window: a.string().required(),        // Time window: unix timestamp (e.g., '1703001234')
+      request_count: a.integer().default(0), // Number of requests in this window
+      ttl: a.integer()                      // TTL for automatic cleanup (60 seconds after window)
+    })
+    .identifier(['service', 'window'])
+    .authorization(allow => [
+      allow.authenticated().to(['read'])    // Lambda uses IAM, not user auth
     ]),
 
   // User subscription data (for future Stripe integration)

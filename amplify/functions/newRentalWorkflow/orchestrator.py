@@ -309,8 +309,12 @@ class NewRentalWorkflowOrchestrator:
         # Build full address for sales data lookup
         full_address = f"{input_data.street}, {input_data.city}, {input_data.state} {input_data.zip}"
 
-        if unit_data is None:
-            logger.warning("property_info returned no unit_data, skipping apartment_comps")
+        # Skip apartment comps if configured or no unit data available
+        if self.config.skip_rental_comps or unit_data is None:
+            if self.config.skip_rental_comps:
+                logger.info("skip_rental_comps enabled, fetching sales data only")
+            else:
+                logger.warning("property_info returned no unit_data, skipping apartment_comps")
             self._execute_sales_data(property_type, input_data.zip, lat, lon, full_address)
             return
 

@@ -33,8 +33,10 @@ const backend = defineBackend({
 // =============================================================================
 const workflowJobTable = backend.data.resources.tables['WorkflowJob'];
 const usageRecordTable = backend.data.resources.tables['UsageRecord'];
+const rateLimitCounterTable = backend.data.resources.tables['RateLimitCounter'];
 const workflowJobTableName = workflowJobTable.tableName;
 const usageRecordTableName = usageRecordTable.tableName;
+const rateLimitCounterTableName = rateLimitCounterTable.tableName;
 
 // =============================================================================
 // Lambda Function References
@@ -78,7 +80,9 @@ workflowJobTable.grantReadData(getRentalWorkflowStatusLambda);
 // newRentalWorkflow (Python) Configuration
 // =============================================================================
 newRentalWorkflowLambda.addEnvironment('WORKFLOW_JOB_TABLE_NAME', workflowJobTableName);
+newRentalWorkflowLambda.addEnvironment('RATE_LIMIT_TABLE_NAME', rateLimitCounterTableName);
 workflowJobTable.grantReadWriteData(newRentalWorkflowLambda);
+rateLimitCounterTable.grantReadWriteData(newRentalWorkflowLambda);
 
 // =============================================================================
 // getEntitlements Configuration

@@ -31,6 +31,17 @@ from .rate_limiter import (
     get_rentcast_limiter,
     reset_all_limiters
 )
+from .distributed_rate_limiter import (
+    DistributedRateLimiter,
+    RateLimitService,
+    RateLimitConfig,
+    RATE_LIMIT_CONFIGS,
+    DistributedRateLimitError,
+    get_distributed_limiter,
+    acquire_rate_limit,
+    try_acquire_rate_limit,
+    reset_distributed_limiter
+)
 from .logging_utils import (
     log_workflow_start,
     log_workflow_complete
@@ -66,12 +77,22 @@ __all__ = [
     # AWS utilities
     'get_all_api_clients_from_env',
     'APIClients',
-    # Rate limiting
+    # Rate limiting (local - per Lambda instance)
     'RateLimiter',
     'MultiServiceRateLimiter',
     'get_nominatim_limiter',
     'get_rentcast_limiter',
     'reset_all_limiters',
+    # Rate limiting (distributed - across Lambda instances via DynamoDB)
+    'DistributedRateLimiter',
+    'RateLimitService',
+    'RateLimitConfig',
+    'RATE_LIMIT_CONFIGS',
+    'DistributedRateLimitError',
+    'get_distributed_limiter',
+    'acquire_rate_limit',
+    'try_acquire_rate_limit',
+    'reset_distributed_limiter',
     # Logging utilities
     'log_workflow_start',
     'log_workflow_complete',

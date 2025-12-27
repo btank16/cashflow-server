@@ -4,9 +4,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel
 import logging
 import requests
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import (
@@ -14,6 +12,10 @@ from ..common.utils import (
     create_error_response,
     create_success_response,
     measure_execution_time
+)
+from ..common.distributed_rate_limiter import (
+    acquire_rate_limit,
+    RateLimitService
 )
 
 logger = logging.getLogger(__name__)
@@ -33,34 +35,21 @@ class GeocodingInput(BaseModel):
     zip: Optional[str] = None
 
 
-# Track last request time for rate limiting
-_last_request_time = 0.0
-
-# Global lock for thread-safe rate limiting
-_geocoding_lock = Lock()
-
-
 def _enforce_rate_limit():
     """
     Enforce Nominatim's rate limit of 1 request per second.
 
+    Uses distributed rate limiting via DynamoDB to coordinate across
+    multiple Lambda invocations. Falls back to local limiting if
+    DynamoDB is unavailable.
+
     Nominatim usage policy requires maximum 1 request per second.
-    This function ensures compliance by adding delays if needed.
-    Thread-safe via global lock.
+    https://operations.osmfoundation.org/policies/nominatim/
     """
-    global _last_request_time
-
-    with _geocoding_lock:
-        current_time = time.time()
-        time_since_last_request = current_time - _last_request_time
-
-        if time_since_last_request < RATE_LIMIT_DELAY:
-            sleep_time = RATE_LIMIT_DELAY - time_since_last_request
-            logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
-            time.sleep(sleep_time)
-
-        # Update timestamp inside the lock to prevent race conditions
-        _last_request_time = time.time()
+    if not acquire_rate_limit(RateLimitService.NOMINATIM, timeout=30.0):
+        logger.warning("Nominatim rate limit timeout after 30s, proceeding anyway")
+    else:
+        logger.debug("Nominatim rate limit slot acquired")
 
 
 @measure_execution_time

@@ -61,6 +61,8 @@ class WorkflowConfig(BaseModel):
     # Outlier detection settings (IQR method)
     min_count_for_outliers: int = 8  # Minimum data points required to apply outlier detection
     iqr_multiplier: float = 1.5  # Multiplier for IQR to determine outlier bounds (1.5 is standard)
+    # Rental comp settings
+    skip_rental_comps: bool = False  # Skip apartment comps gathering (for sales-only workflows)
 
 
 # =============================================================================

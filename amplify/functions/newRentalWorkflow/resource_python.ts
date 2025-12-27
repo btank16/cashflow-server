@@ -65,6 +65,10 @@ export const newRentalWorkflow = defineFunction(
     // This is a placeholder - the actual table name will be injected during deployment
     lambdaFunction.addEnvironment('WORKFLOW_JOB_TABLE_NAME', '');
 
+    // Environment variable for RateLimitCounter DynamoDB table (will be set by backend.ts)
+    // Used for distributed rate limiting across Lambda invocations
+    lambdaFunction.addEnvironment('RATE_LIMIT_TABLE_NAME', '');
+
     // Grant Lambda permission to read all required SSM parameters
     lambdaFunction.addToRolePolicy(
       new PolicyStatement({
@@ -89,6 +93,21 @@ export const newRentalWorkflow = defineFunction(
         ],
         resources: [
           `arn:aws:dynamodb:*:*:table/*WorkflowJob*`,
+        ],
+      })
+    );
+
+    // Grant Lambda permission to read/write RateLimitCounter DynamoDB table
+    // Used for distributed rate limiting of external API calls
+    lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:PutItem',
+          'dynamodb:UpdateItem'
+        ],
+        resources: [
+          `arn:aws:dynamodb:*:*:table/*RateLimitCounter*`,
         ],
       })
     );

@@ -13,8 +13,26 @@ from ..common import (
     create_success_response,
     RentcastClient
 )
+from ..common.distributed_rate_limiter import (
+    acquire_rate_limit,
+    RateLimitService
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _enforce_rentcast_rate_limit():
+    """
+    Enforce Rentcast API rate limit of 20 requests per second.
+
+    Uses distributed rate limiting via DynamoDB to coordinate across
+    multiple Lambda invocations. This is proactive rate limiting to
+    prevent 429 errors.
+    """
+    if not acquire_rate_limit(RateLimitService.RENTCAST, timeout=10.0):
+        logger.warning("Rentcast rate limit timeout after 10s, proceeding anyway")
+    else:
+        logger.debug("Rentcast rate limit slot acquired")
 
 
 # ============================================================================
@@ -139,6 +157,9 @@ def get_rentcast_property_records(
             params['limit'] = search_input.limit
         if search_input.offset is not None:
             params['offset'] = search_input.offset
+
+        # Enforce rate limiting before API call
+        _enforce_rentcast_rate_limit()
 
         # Make API request
         try:
@@ -386,6 +407,9 @@ def _get_rentcast_listings(
         if search_input.offset is not None:
             params['offset'] = search_input.offset
 
+        # Enforce rate limiting before API call
+        _enforce_rentcast_rate_limit()
+
         # Make API request
         try:
             response_data = client.get(endpoint, params)
@@ -615,6 +639,9 @@ def get_rentcast_market_stats(
             params['dataType'] = search_input.data_type
         if search_input.history_range is not None:
             params['historyRange'] = search_input.history_range
+
+        # Enforce rate limiting before API call
+        _enforce_rentcast_rate_limit()
 
         # Make API request
         try:
