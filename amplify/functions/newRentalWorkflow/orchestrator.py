@@ -23,7 +23,6 @@ from workflow_types import (
     BoundingBoxData,
     PolygonData,
     PolygonExpansionMetadata,
-    InterestRateData,
     PropertyInfoData,
     PropertyTaxData,
     SalesData,
@@ -52,7 +51,6 @@ from propertyDataGather.common.osm_config import calculate_radius_bbox, haversin
 from propertyDataGather.functions.geocoding import get_coordinates, batch_geocode_addresses
 from propertyDataGather.functions.osm_fetcher import fetch_osm_ways
 from propertyDataGather.functions.boundary_builder import build_boundary_polygon, expand_boundary_polygon
-from propertyDataGather.functions.interest_rates import get_interest_rate, adjust_interest_rate
 from propertyDataGather.functions.rentcast_data import (
     get_rentcast_property_records,
     get_rentcast_rental_listings,
@@ -75,9 +73,8 @@ class NewRentalWorkflowOrchestrator:
     Workflow:
     1. Validation: Geocode address, verify type == "house"
     2. Parallel workflows:
-       - Workflow 1: Interest rate lookup
-       - Workflow 2: Boundary analysis (bbox + polygon)
-       - Workflow 3: Property data (info, tax, sales, apartment comps)
+       - Workflow 1: Boundary analysis (bbox + polygon)
+       - Workflow 2: Property data (info, tax, sales, apartment comps)
     """
 
     def __init__(
@@ -151,9 +148,8 @@ class NewRentalWorkflowOrchestrator:
 
         # Step 2: Parallel Workflows
         logger.info("Starting parallel workflows")
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {
-                executor.submit(self._execute_interest_rate_workflow, workflow_input.state): 'interest_rate',
                 executor.submit(self._execute_boundary_workflow, lat, lon): 'boundary_analysis',
                 executor.submit(self._execute_property_data_workflow, workflow_input, lat, lon): 'property_data'
             }
@@ -230,39 +226,7 @@ class NewRentalWorkflowOrchestrator:
             return None
 
     # =========================================================================
-    # Workflow 1: Interest Rate
-    # =========================================================================
-
-    def _execute_interest_rate_workflow(self, state: str) -> None:
-        """Execute interest rate lookup workflow."""
-        step_start = time.time()
-
-        try:
-            result = get_interest_rate({
-                'state_name': state,
-                'down_payment': self.config.default_down_payment,
-                'loan_type': self.config.default_loan_type
-            }, self.perplexity_client)
-
-            if result.success and result.data:
-                self.state.data.interest_rate = InterestRateData(
-                    interest_rate=result.data.get('interest_rate', 0),
-                    state=state,
-                    loan_type=self.config.default_loan_type,
-                    down_payment=self.config.default_down_payment
-                )
-                self.state.complete_step(WorkflowStep.INTEREST_RATE, result.data, 'perplexity', 1, step_start)
-                self._notify_step_complete('interest_rate')
-            else:
-                self.state.fail_step(WorkflowStep.INTEREST_RATE, result.error or "Failed to get interest rate",
-                                     result.error_code or ErrorCode.API_ERROR, 1, step_start)
-
-        except Exception as e:
-            logger.error(f"Interest rate workflow error: {e}", exc_info=True)
-            self.state.fail_step(WorkflowStep.INTEREST_RATE, str(e), ErrorCode.INTERNAL_ERROR, 1, step_start)
-
-    # =========================================================================
-    # Workflow 2: Boundary Analysis
+    # Workflow 1: Boundary Analysis
     # =========================================================================
 
     def _execute_boundary_workflow(self, lat: float, lon: float) -> None:
@@ -329,7 +293,7 @@ class NewRentalWorkflowOrchestrator:
             self.state.fail_step(WorkflowStep.BOUNDARY_ANALYSIS, str(e), ErrorCode.INTERNAL_ERROR, api_calls, step_start)
 
     # =========================================================================
-    # Workflow 3: Property Data
+    # Workflow 2: Property Data
     # =========================================================================
 
     def _execute_property_data_workflow(self, input_data: NewRentalWorkflowInput, lat: float, lon: float) -> None:
@@ -1135,22 +1099,6 @@ class NewRentalWorkflowOrchestrator:
         if data.property_tax:
             input_property.annual_taxes = data.property_tax.annual_taxes
             input_property.tax_year = data.property_tax.tax_year
-
-        # Add adjusted interest rate
-        if data.interest_rate and data.property_info:
-            adj_result = adjust_interest_rate({
-                'interest_rate': data.interest_rate.interest_rate,
-                'property_type': data.property_info.property_type or '',
-                'is_primary_residence': self.config.is_primary_residence
-            })
-            if adj_result.success and adj_result.data:
-                input_property.interest_rate = adj_result.data.get('adjusted_rate')
-            else:
-                # Fallback to base rate if adjustment fails
-                input_property.interest_rate = data.interest_rate.interest_rate
-        elif data.interest_rate:
-            # No property info available, use base rate
-            input_property.interest_rate = data.interest_rate.interest_rate
 
         return input_property
 

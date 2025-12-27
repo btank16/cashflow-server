@@ -25,7 +25,6 @@ class WorkflowStepStatus(str, Enum):
 class WorkflowStep(str, Enum):
     """Enumeration of all workflow steps."""
     VALIDATION = 'validation'
-    INTEREST_RATE = 'interest_rate'
     BOUNDARY_ANALYSIS = 'boundary_analysis'
     PROPERTY_INFO = 'property_info'
     PROPERTY_TAX = 'property_tax'
@@ -47,14 +46,11 @@ class NewRentalWorkflowInput(BaseModel):
 
 class WorkflowConfig(BaseModel):
     """Configuration options for the workflow."""
-    default_down_payment: float = 20.0
-    default_loan_type: str = "30-year fixed"
     sales_time_period: int = 6  # Number of months
     sales_limit: int = 50  # Max number of sales to find
     rental_listings_limit: int = 500  # Max number of rental listings to fetch
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
-    is_primary_residence: bool = False
     # Polygon expansion settings
     enable_polygon_expansion: bool = True
     min_data_for_analysis: int = 5  # Minimum data points before tier 1-2 expansion
@@ -137,14 +133,6 @@ class PolygonData(BaseModel):
     # Expansion fields
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
-
-
-class InterestRateData(BaseModel):
-    """Interest rate result."""
-    interest_rate: float
-    state: str
-    loan_type: str
-    down_payment: float
 
 
 class PropertyTaxData(BaseModel):
@@ -275,9 +263,6 @@ class InputPropertyInfo(BaseModel):
     annual_taxes: Optional[float] = None
     tax_year: Optional[int] = None
 
-    # Interest rate
-    interest_rate: Optional[float] = None
-
 
 class FilteredSalesData(BaseModel):
     """Filtered sales data within polygon or by distance fallback."""
@@ -327,10 +312,7 @@ class WorkflowData(BaseModel):
     # Step 1 - Validation
     geocoding: Optional[GeocodingData] = None
 
-    # Workflow 1 - Interest Rate
-    interest_rate: Optional[InterestRateData] = None
-
-    # Workflow 2 - Boundary Analysis
+    # Workflow 1 - Boundary Analysis
     bounding_boxes: Optional[BoundingBoxData] = None
     boundary_polygon: Optional[PolygonData] = None
 

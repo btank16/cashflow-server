@@ -8,6 +8,7 @@ import { getEntitlements } from './functions/getEntitlements/resource';
 import { grantBetaAccess } from './functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from './functions/revokeBetaAccess/resource';
 import { listBetaUsers } from './functions/listBetaUsers/resource';
+import { interestRateLookup } from './functions/interestRateLookup/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
 
@@ -23,7 +24,8 @@ const backend = defineBackend({
   getEntitlements,
   grantBetaAccess,
   revokeBetaAccess,
-  listBetaUsers
+  listBetaUsers,
+  interestRateLookup
 });
 
 // =============================================================================
