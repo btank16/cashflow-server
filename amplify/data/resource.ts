@@ -6,6 +6,7 @@ import { getEntitlements } from '../functions/getEntitlements/resource';
 import { grantBetaAccess } from '../functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from '../functions/revokeBetaAccess/resource';
 import { listBetaUsers } from '../functions/listBetaUsers/resource';
+import { geminiArticles } from '../functions/geminiArticles/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -141,6 +142,28 @@ const schema = a.schema({
     }))
     .authorization(allow => [allow.group('admin')])
     .handler(a.handler.function(listBetaUsers)),
+
+  // =============================================================================
+  // Gemini AI
+  // =============================================================================
+
+  // Generate article content using Gemini 2.0 Flash
+  geminiArticles: a
+    .query()
+    .arguments({
+      systemPrompt: a.string().required(),
+      userPrompt: a.string().required()
+    })
+    .returns(a.customType({
+      success: a.boolean().required(),
+      description: a.string(),
+      question_one: a.string(),
+      question_two: a.string(),
+      question_three: a.string(),
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(geminiArticles)),
 
   // =============================================================================
   // Data Models
