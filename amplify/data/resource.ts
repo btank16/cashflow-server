@@ -7,6 +7,7 @@ import { grantBetaAccess } from '../functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from '../functions/revokeBetaAccess/resource';
 import { listBetaUsers } from '../functions/listBetaUsers/resource';
 import { geminiArticles } from '../functions/geminiArticles/resource';
+import { offerLetter } from '../functions/offerLetter/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -164,6 +165,24 @@ const schema = a.schema({
     }))
     .authorization(allow => [allow.authenticated()])
     .handler(a.handler.function(geminiArticles)),
+
+  // Generate offer letter using Gemini AI
+  generateOfferLetter: a
+    .mutation()
+    .arguments({
+      offerType: a.string().required(),  // 'rental', 'flip', 'brrrr'
+      receiver: a.string().required(),
+      inputData: a.json().required(),
+      senderFirstName: a.string(),  // Optional: sender's first name for letter signature
+      senderLastName: a.string()    // Optional: sender's last name for letter signature
+    })
+    .returns(a.customType({
+      success: a.boolean().required(),
+      letter: a.string(),
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(offerLetter)),
 
   // =============================================================================
   // Data Models
