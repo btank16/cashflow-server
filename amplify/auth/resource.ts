@@ -74,6 +74,10 @@ export const auth = defineAuth({
       mutable: true,
       dataType: "String",
     },
+    "custom:referral_code": {
+      mutable: true,
+      dataType: "String",
+    },
   },
   // User groups
   groups: ["basic", "premium", "platinum", "beta", "admin"],
