@@ -30,7 +30,6 @@ export type LambdaEventIdentity = unknown;
 export interface UserEntitlements {
   tier: TierName;
   displayName: string;
-  dailyLimit: number | null;
   monthlyLimit: number | null;
   features: string[];
   source: 'cognito-group' | 'subscription';
@@ -82,7 +81,6 @@ export function getUserEntitlements(cognitoGroups: string[]): UserEntitlements {
   //   return {
   //     tier: subscription.tier,
   //     displayName: TIERS[subscription.tier].displayName,
-  //     dailyLimit: subscription.dailyLimit,
   //     monthlyLimit: subscription.monthlyLimit,
   //     features: subscription.features,
   //     source: 'subscription',
@@ -98,7 +96,6 @@ export function getUserEntitlements(cognitoGroups: string[]): UserEntitlements {
   return {
     tier,
     displayName: tierConfig.displayName,
-    dailyLimit: tierConfig.dailyLimit,
     monthlyLimit: tierConfig.monthlyLimit,
     features: tierConfig.features,
     source: 'cognito-group',

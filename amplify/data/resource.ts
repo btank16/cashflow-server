@@ -8,6 +8,7 @@ import { revokeBetaAccess } from '../functions/revokeBetaAccess/resource';
 import { listBetaUsers } from '../functions/listBetaUsers/resource';
 import { geminiArticles } from '../functions/geminiArticles/resource';
 import { offerLetter } from '../functions/offerLetter/resource';
+import { interestRateLookup } from '../functions/interestRateLookup/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -26,7 +27,7 @@ const schema = a.schema({
       city: a.string().required(),
       state: a.string().required(),
       zip: a.string().required(),
-      timezone: a.string(),  // User's timezone for daily limit calculation
+      timezone: a.string(),  // User's timezone for billing period calculation
       config: a.json()  // Optional workflow configuration (e.g., { skip_rental_comps: true })
     })
     .returns(a.customType({
@@ -82,17 +83,16 @@ const schema = a.schema({
   getMyEntitlements: a
     .query()
     .arguments({
-      timezone: a.string()  // User's timezone for accurate daily usage
+      timezone: a.string()  // User's timezone for billing period calculation
     })
     .returns(a.customType({
       tier: a.string().required(),
       displayName: a.string().required(),
-      dailyLimit: a.integer(),
       monthlyLimit: a.integer(),
-      dailyUsed: a.integer().required(),
-      dailyRemaining: a.integer(),
       monthlyUsed: a.integer().required(),
       monthlyRemaining: a.integer(),
+      periodStart: a.string().required(),  // YYYY-MM-DD
+      periodEnd: a.string().required(),    // YYYY-MM-DD
       features: a.string().array().required(),
       canUseResidentAI: a.boolean().required(),
       isAdmin: a.boolean().required(),
@@ -184,6 +184,22 @@ const schema = a.schema({
     .authorization(allow => [allow.authenticated()])
     .handler(a.handler.function(offerLetter)),
 
+  // Look up current mortgage interest rates
+  lookupInterestRate: a
+    .query()
+    .arguments({
+      loanType: a.string().required(),      // e.g., "30-year fixed"
+      isPersonal: a.boolean().required(),   // true = primary residence, false = investment
+      downPayment: a.integer().required(),  // 5, 10, 15, or 20
+      state: a.string().required()          // e.g., "Ohio"
+    })
+    .returns(a.customType({
+      baseRate: a.float().required(),
+      adjRate: a.float().required()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(interestRateLookup)),
+
   // =============================================================================
   // Data Models
   // =============================================================================
@@ -207,7 +223,7 @@ const schema = a.schema({
   UsageRecord: a
     .model({
       userId: a.string().required(),
-      periodFunction: a.string().required(),  // 'daily#YYYY-MM-DD#timezone#functionName'
+      periodFunction: a.string().required(),  // 'billing#YYYY-MM-DD#timezone#functionName' or 'anchor#timezone#functionName'
       count: a.integer().default(0),
       tier: a.string(),  // Snapshot of tier at usage time
       ttl: a.integer()   // TTL for automatic DynamoDB cleanup
@@ -245,7 +261,6 @@ const schema = a.schema({
       // Subscription data
       tier: a.enum(['basic', 'beta', 'premium', 'platinum', 'admin']),
       status: a.enum(['active', 'canceled', 'past_due', 'trialing', 'legacy']),
-      dailyLimit: a.integer(),
       monthlyLimit: a.integer(),
       features: a.string().array(),
       // Billing cycle

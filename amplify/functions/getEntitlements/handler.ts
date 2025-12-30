@@ -2,7 +2,7 @@
  * Get Entitlements Handler
  *
  * Returns the calling user's entitlements and current usage information.
- * Uses timezone-aware daily usage calculation.
+ * Uses billing-cycle-aware usage calculation based on user's anchor date.
  */
 
 import {
@@ -24,12 +24,11 @@ interface LambdaEvent {
 interface EntitlementsResponse {
   tier: string;
   displayName: string;
-  dailyLimit: number | null;
   monthlyLimit: number | null;
-  dailyUsed: number;
-  dailyRemaining: number | null;
   monthlyUsed: number;
   monthlyRemaining: number | null;
+  periodStart: string;
+  periodEnd: string;
   features: string[];
   canUseResidentAI: boolean;
   isAdmin: boolean;
@@ -74,20 +73,21 @@ export const handler = async (event: LambdaEvent): Promise<EntitlementsResponse>
 
   console.log(`User ${userId} entitlements:`, {
     tier: entitlements.tier,
-    dailyUsed: usage.dailyUsed,
-    dailyRemaining: usage.dailyRemaining,
+    monthlyUsed: usage.monthlyUsed,
+    monthlyRemaining: usage.monthlyRemaining,
+    periodStart: usage.periodStart,
+    periodEnd: usage.periodEnd,
     canUseResidentAI,
   });
 
   return {
     tier: entitlements.tier,
     displayName: entitlements.displayName,
-    dailyLimit: entitlements.dailyLimit,
     monthlyLimit: entitlements.monthlyLimit,
-    dailyUsed: usage.dailyUsed,
-    dailyRemaining: usage.dailyRemaining,
     monthlyUsed: usage.monthlyUsed,
     monthlyRemaining: usage.monthlyRemaining,
+    periodStart: usage.periodStart,
+    periodEnd: usage.periodEnd,
     features: entitlements.features,
     canUseResidentAI,
     isAdmin: entitlements.isAdmin,

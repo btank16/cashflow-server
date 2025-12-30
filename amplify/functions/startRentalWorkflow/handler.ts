@@ -92,7 +92,7 @@ export const handler = async (
     const entitlements = getUserEntitlements(cognitoGroups);
     console.log('User entitlements:', {
       tier: entitlements.tier,
-      dailyLimit: entitlements.dailyLimit,
+      monthlyLimit: entitlements.monthlyLimit,
       timezone
     });
 
@@ -109,15 +109,17 @@ export const handler = async (
       return {
         jobId: null,
         status: 'limit_reached',
-        error: usageCheck.error || 'Daily limit reached. Your limit resets at midnight.'
+        error: usageCheck.error || 'Monthly limit reached. Your limit resets at the start of next month.'
       };
     }
 
     console.log('Access granted, usage incremented:', {
       tier: entitlements.tier,
-      dailyUsed: usageCheck.usage.dailyUsed,
-      dailyLimit: usageCheck.usage.dailyLimit,
-      dailyRemaining: usageCheck.usage.dailyRemaining
+      monthlyUsed: usageCheck.usage.monthlyUsed,
+      monthlyLimit: usageCheck.usage.monthlyLimit,
+      monthlyRemaining: usageCheck.usage.monthlyRemaining,
+      periodStart: usageCheck.usage.periodStart,
+      periodEnd: usageCheck.usage.periodEnd
     });
     // =========================================================================
 

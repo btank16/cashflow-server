@@ -1,8 +1,10 @@
 /**
- * Usage tracking utilities for Cashflow Beta Access System
+ * Usage tracking utilities for Cashflow Access System
  *
- * Handles timezone-aware daily usage tracking with DynamoDB.
- * Daily limits reset at midnight in the user's local timezone.
+ * Handles billing-cycle-aware usage tracking with DynamoDB.
+ * Each user's billing period is anchored to their first usage date.
+ * Billing periods run from anchor day to anchor day (e.g., Dec 15 → Jan 14).
+ * Handles month-length edge cases (e.g., Jan 31 → Feb 28).
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -10,6 +12,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   UpdateCommand,
+  PutCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { UserEntitlements } from './authorization';
 
@@ -17,14 +20,13 @@ const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 
 export interface UsageStatus {
-  dailyUsed: number;
-  dailyLimit: number | null;
-  dailyRemaining: number | null;
   monthlyUsed: number;
   monthlyLimit: number | null;
   monthlyRemaining: number | null;
+  periodStart: string;      // YYYY-MM-DD
+  periodEnd: string;        // YYYY-MM-DD
   canProceed: boolean;
-  limitReached: 'daily' | 'monthly' | null;
+  limitReached: boolean;
 }
 
 export interface UsageCheckResult {
@@ -55,15 +57,224 @@ export function getDateInTimezone(timezone: string): string {
 }
 
 /**
- * Build the period key for daily usage tracking.
- * Format: daily#YYYY-MM-DD#timezone#functionName
+ * Get the day of month from a date string in the user's timezone.
  */
-function buildDailyPeriodKey(
-  dateStr: string,
+function getDayOfMonth(timezone: string): number {
+  const dateStr = getDateInTimezone(timezone);
+  return parseInt(dateStr.split('-')[2], 10);
+}
+
+/**
+ * Calculate the adjusted anchor day for a given month.
+ * Handles months with fewer days (e.g., anchor 31 in February → 28/29).
+ */
+function getAdjustedAnchorDay(anchorDay: number, year: number, month: number): number {
+  // Get the last day of the month
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  return Math.min(anchorDay, lastDayOfMonth);
+}
+
+/**
+ * Calculate the current billing period start and end dates.
+ *
+ * @param anchorDay - The user's billing anchor day (1-31)
+ * @param timezone - User's timezone
+ * @returns Object with periodStart and periodEnd as YYYY-MM-DD strings
+ */
+function calculateBillingPeriod(
+  anchorDay: number,
+  timezone: string
+): { periodStart: string; periodEnd: string } {
+  const todayStr = getDateInTimezone(timezone);
+  const [yearStr, monthStr, dayStr] = todayStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed
+  const day = parseInt(dayStr, 10);
+
+  // Get the adjusted anchor day for current month
+  const adjustedAnchorThisMonth = getAdjustedAnchorDay(anchorDay, year, month);
+
+  let periodStartYear: number;
+  let periodStartMonth: number;
+  let periodStartDay: number;
+
+  if (day >= adjustedAnchorThisMonth) {
+    // We're in a period that started this month
+    periodStartYear = year;
+    periodStartMonth = month;
+    periodStartDay = adjustedAnchorThisMonth;
+  } else {
+    // We're in a period that started last month
+    if (month === 0) {
+      periodStartYear = year - 1;
+      periodStartMonth = 11; // December
+    } else {
+      periodStartYear = year;
+      periodStartMonth = month - 1;
+    }
+    periodStartDay = getAdjustedAnchorDay(anchorDay, periodStartYear, periodStartMonth);
+  }
+
+  // Calculate period end (day before next anchor)
+  let periodEndYear: number;
+  let periodEndMonth: number;
+  let periodEndDay: number;
+
+  if (day >= adjustedAnchorThisMonth) {
+    // Period ends next month
+    if (month === 11) {
+      periodEndYear = year + 1;
+      periodEndMonth = 0; // January
+    } else {
+      periodEndYear = year;
+      periodEndMonth = month + 1;
+    }
+    const nextAnchor = getAdjustedAnchorDay(anchorDay, periodEndYear, periodEndMonth);
+    // End is day before next anchor
+    const endDate = new Date(periodEndYear, periodEndMonth, nextAnchor);
+    endDate.setDate(endDate.getDate() - 1);
+    periodEndYear = endDate.getFullYear();
+    periodEndMonth = endDate.getMonth();
+    periodEndDay = endDate.getDate();
+  } else {
+    // Period ends this month (day before this month's anchor)
+    const endDate = new Date(year, month, adjustedAnchorThisMonth);
+    endDate.setDate(endDate.getDate() - 1);
+    periodEndYear = endDate.getFullYear();
+    periodEndMonth = endDate.getMonth();
+    periodEndDay = endDate.getDate();
+  }
+
+  const periodStart = `${periodStartYear}-${String(periodStartMonth + 1).padStart(2, '0')}-${String(periodStartDay).padStart(2, '0')}`;
+  const periodEnd = `${periodEndYear}-${String(periodEndMonth + 1).padStart(2, '0')}-${String(periodEndDay).padStart(2, '0')}`;
+
+  return { periodStart, periodEnd };
+}
+
+/**
+ * Build the key for storing/retrieving the user's billing anchor.
+ * Format: anchor#timezone#functionName
+ */
+function buildAnchorKey(timezone: string, functionName: string): string {
+  return `anchor#${timezone}#${functionName}`;
+}
+
+/**
+ * Build the key for billing period usage tracking.
+ * Format: billing#YYYY-MM-DD#timezone#functionName
+ * The date is the period start date.
+ */
+function buildBillingPeriodKey(
+  periodStart: string,
   timezone: string,
   functionName: string
 ): string {
-  return `daily#${dateStr}#${timezone}#${functionName}`;
+  return `billing#${periodStart}#${timezone}#${functionName}`;
+}
+
+/**
+ * Get or create the user's billing anchor day.
+ * On first usage, sets the anchor to today's day of month.
+ *
+ * @param tableName - DynamoDB table name
+ * @param userId - User's ID
+ * @param functionName - Function being tracked (e.g., 'resident-ai')
+ * @param timezone - User's timezone
+ * @param tier - User's current tier
+ * @returns The anchor day (1-31)
+ */
+async function getOrCreateAnchorDay(
+  tableName: string,
+  userId: string,
+  functionName: string,
+  timezone: string,
+  tier: string
+): Promise<number> {
+  const anchorKey = buildAnchorKey(timezone, functionName);
+
+  // Try to get existing anchor
+  try {
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { userId, periodFunction: anchorKey },
+      })
+    );
+
+    if (result.Item?.anchorDay) {
+      return result.Item.anchorDay;
+    }
+  } catch (error) {
+    console.error('Error fetching anchor:', error);
+  }
+
+  // Create new anchor based on today's date
+  const anchorDay = getDayOfMonth(timezone);
+  const now = new Date().toISOString();
+
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          userId,
+          periodFunction: anchorKey,
+          anchorDay,
+          tier,
+          createdAt: now,
+          updatedAt: now,
+        },
+        // Only create if doesn't exist (prevent race condition)
+        ConditionExpression: 'attribute_not_exists(userId)',
+      })
+    );
+    console.log(`Created billing anchor for user ${userId}: day ${anchorDay}`);
+  } catch (error: any) {
+    // If condition failed, another request created it - fetch it
+    if (error.name === 'ConditionalCheckFailedException') {
+      const result = await docClient.send(
+        new GetCommand({
+          TableName: tableName,
+          Key: { userId, periodFunction: anchorKey },
+        })
+      );
+      return result.Item?.anchorDay || anchorDay;
+    }
+    console.error('Error creating anchor:', error);
+  }
+
+  return anchorDay;
+}
+
+/**
+ * Reset the user's billing anchor to today (used when user upgrades tier).
+ */
+export async function resetBillingAnchor(
+  tableName: string,
+  userId: string,
+  functionName: string,
+  timezone: string,
+  tier: string
+): Promise<number> {
+  const anchorKey = buildAnchorKey(timezone, functionName);
+  const anchorDay = getDayOfMonth(timezone);
+  const now = new Date().toISOString();
+
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: { userId, periodFunction: anchorKey },
+      UpdateExpression: 'SET anchorDay = :day, tier = :tier, updatedAt = :now, resetAt = :now',
+      ExpressionAttributeValues: {
+        ':day': anchorDay,
+        ':tier': tier,
+        ':now': now,
+      },
+    })
+  );
+
+  console.log(`Reset billing anchor for user ${userId}: day ${anchorDay}`);
+  return anchorDay;
 }
 
 /**
@@ -76,52 +287,49 @@ export async function getUsageStatus(
   timezone: string,
   entitlements: UserEntitlements
 ): Promise<UsageStatus> {
-  const today = getDateInTimezone(timezone);
-  const dailyPeriodKey = buildDailyPeriodKey(today, timezone, functionName);
+  // Get or create billing anchor
+  const anchorDay = await getOrCreateAnchorDay(
+    tableName,
+    userId,
+    functionName,
+    timezone,
+    entitlements.tier
+  );
 
-  // Fetch daily usage
-  let dailyUsed = 0;
+  // Calculate current billing period
+  const { periodStart, periodEnd } = calculateBillingPeriod(anchorDay, timezone);
+  const billingKey = buildBillingPeriodKey(periodStart, timezone, functionName);
+
+  // Fetch current period usage
+  let monthlyUsed = 0;
   try {
-    const dailyResult = await docClient.send(
+    const result = await docClient.send(
       new GetCommand({
         TableName: tableName,
-        Key: { userId, periodFunction: dailyPeriodKey },
+        Key: { userId, periodFunction: billingKey },
       })
     );
-    dailyUsed = dailyResult.Item?.count || 0;
+    monthlyUsed = result.Item?.count || 0;
   } catch (error) {
-    console.error('Error fetching daily usage:', error);
+    console.error('Error fetching usage:', error);
   }
 
-  // Monthly usage - for future subscription users
-  // Beta users have no monthly limit, so we skip this for now
-  const monthlyUsed = 0;
-
-  const { dailyLimit, monthlyLimit } = entitlements;
+  const { monthlyLimit } = entitlements;
 
   // Calculate remaining (null means unlimited)
-  const dailyRemaining =
-    dailyLimit !== null ? Math.max(0, dailyLimit - dailyUsed) : null;
   const monthlyRemaining =
     monthlyLimit !== null ? Math.max(0, monthlyLimit - monthlyUsed) : null;
 
-  // Determine if any limit is reached
-  let limitReached: 'daily' | 'monthly' | null = null;
-
-  if (dailyLimit !== null && dailyUsed >= dailyLimit) {
-    limitReached = 'daily';
-  } else if (monthlyLimit !== null && monthlyUsed >= monthlyLimit) {
-    limitReached = 'monthly';
-  }
+  // Determine if limit is reached
+  const limitReached = monthlyLimit !== null && monthlyUsed >= monthlyLimit;
 
   return {
-    dailyUsed,
-    dailyLimit,
-    dailyRemaining,
     monthlyUsed,
     monthlyLimit,
     monthlyRemaining,
-    canProceed: limitReached === null,
+    periodStart,
+    periodEnd,
+    canProceed: !limitReached,
     limitReached,
   };
 }
@@ -138,18 +346,38 @@ export async function checkAndIncrementUsage(
   timezone: string,
   entitlements: UserEntitlements
 ): Promise<UsageCheckResult> {
-  const { dailyLimit } = entitlements;
+  const { monthlyLimit } = entitlements;
+
+  // Get or create billing anchor
+  const anchorDay = await getOrCreateAnchorDay(
+    tableName,
+    userId,
+    functionName,
+    timezone,
+    entitlements.tier
+  );
+
+  // Calculate current billing period
+  const { periodStart, periodEnd } = calculateBillingPeriod(anchorDay, timezone);
 
   // If user has unlimited access (null limit), just increment without condition
-  if (dailyLimit === null) {
-    await incrementUsageWithRetry(tableName, userId, functionName, timezone, entitlements.tier);
+  if (monthlyLimit === null) {
+    await incrementUsageUnlimited(tableName, userId, functionName, timezone, periodStart, entitlements.tier);
     const usage = await getUsageStatus(tableName, userId, functionName, timezone, entitlements);
     return { success: true, usage };
   }
 
   // If limit is 0, user has no access
-  if (dailyLimit === 0) {
-    const usage = await getUsageStatus(tableName, userId, functionName, timezone, entitlements);
+  if (monthlyLimit === 0) {
+    const usage: UsageStatus = {
+      monthlyUsed: 0,
+      monthlyLimit: 0,
+      monthlyRemaining: 0,
+      periodStart,
+      periodEnd,
+      canProceed: false,
+      limitReached: true,
+    };
     return {
       success: false,
       error: `You don't have access to this feature. Your current tier is ${entitlements.displayName}.`,
@@ -163,15 +391,16 @@ export async function checkAndIncrementUsage(
     userId,
     functionName,
     timezone,
+    periodStart,
     entitlements.tier,
-    dailyLimit
+    monthlyLimit
   );
 
   if (!result.success) {
     const usage = await getUsageStatus(tableName, userId, functionName, timezone, entitlements);
     return {
       success: false,
-      error: `Daily limit of ${dailyLimit} reached. Your limit resets at midnight.`,
+      error: `Monthly limit of ${monthlyLimit} reached. Your limit resets on ${periodEnd}.`,
       usage,
     };
   }
@@ -192,7 +421,7 @@ export async function checkAndIncrementUsage(
 }
 
 /**
- * Atomically increment usage only if under the daily limit.
+ * Atomically increment usage only if under the monthly limit.
  * Uses DynamoDB conditional expression to prevent race conditions.
  * Returns { success: true } if incremented, { success: false } if limit reached.
  */
@@ -201,22 +430,22 @@ async function atomicIncrementIfUnderLimit(
   userId: string,
   functionName: string,
   timezone: string,
+  periodStart: string,
   tier: string,
-  dailyLimit: number
+  monthlyLimit: number
 ): Promise<{ success: boolean }> {
-  const today = getDateInTimezone(timezone);
-  const dailyPeriodKey = buildDailyPeriodKey(today, timezone, functionName);
+  const billingKey = buildBillingPeriodKey(periodStart, timezone, functionName);
 
-  // TTL: 7 days from now for automatic cleanup
-  const ttl = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+  // TTL: 40 days from now for automatic cleanup
+  const ttl = Math.floor(Date.now() / 1000) + 40 * 24 * 60 * 60;
 
   try {
     await docClient.send(
       new UpdateCommand({
         TableName: tableName,
-        Key: { userId, periodFunction: dailyPeriodKey },
+        Key: { userId, periodFunction: billingKey },
         UpdateExpression:
-          'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
+          'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now), periodStart = :periodStart',
         // Condition: count must not exist OR be less than limit
         ConditionExpression:
           'attribute_not_exists(#count) OR #count < :limit',
@@ -230,7 +459,8 @@ async function atomicIncrementIfUnderLimit(
           ':tier': tier,
           ':ttl': ttl,
           ':now': new Date().toISOString(),
-          ':limit': dailyLimit,
+          ':limit': monthlyLimit,
+          ':periodStart': periodStart,
         },
       })
     );
@@ -238,7 +468,7 @@ async function atomicIncrementIfUnderLimit(
   } catch (error: any) {
     // ConditionalCheckFailedException means limit was reached
     if (error.name === 'ConditionalCheckFailedException') {
-      console.log('Usage limit reached (atomic check)');
+      console.log('Monthly usage limit reached (atomic check)');
       return { success: false };
     }
     // For other errors, log and rethrow
@@ -248,31 +478,30 @@ async function atomicIncrementIfUnderLimit(
 }
 
 /**
- * Increment usage counter with exponential backoff retry.
- * Used for unlimited users where we don't need conditional check.
+ * Increment usage counter for unlimited users (no conditional check needed).
  */
-async function incrementUsageWithRetry(
+async function incrementUsageUnlimited(
   tableName: string,
   userId: string,
   functionName: string,
   timezone: string,
+  periodStart: string,
   tier: string,
   maxRetries: number = 3
 ): Promise<void> {
-  const today = getDateInTimezone(timezone);
-  const dailyPeriodKey = buildDailyPeriodKey(today, timezone, functionName);
+  const billingKey = buildBillingPeriodKey(periodStart, timezone, functionName);
 
-  // TTL: 7 days from now for automatic cleanup
-  const ttl = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+  // TTL: 40 days from now for automatic cleanup
+  const ttl = Math.floor(Date.now() / 1000) + 40 * 24 * 60 * 60;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       await docClient.send(
         new UpdateCommand({
           TableName: tableName,
-          Key: { userId, periodFunction: dailyPeriodKey },
+          Key: { userId, periodFunction: billingKey },
           UpdateExpression:
-            'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
+            'SET #count = if_not_exists(#count, :zero) + :inc, tier = :tier, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now), periodStart = :periodStart',
           ExpressionAttributeNames: {
             '#count': 'count',
             '#ttl': 'ttl',
@@ -283,6 +512,7 @@ async function incrementUsageWithRetry(
             ':tier': tier,
             ':ttl': ttl,
             ':now': new Date().toISOString(),
+            ':periodStart': periodStart,
           },
         })
       );
