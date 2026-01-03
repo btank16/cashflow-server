@@ -6,5 +6,6 @@ export const getEntitlements = defineFunction({
   timeoutSeconds: 10,
   runtime: 22,
   memoryMB: 128,
-  resourceGroupName: 'data'
+  resourceGroupName: 'data',
+  architecture: 'arm64'
 });

@@ -6,5 +6,6 @@ export const grantBetaAccess = defineFunction({
   timeoutSeconds: 30,
   runtime: 22,
   memoryMB: 128,
-  resourceGroupName: 'data'
+  resourceGroupName: 'data',
+  architecture: 'arm64'
 });

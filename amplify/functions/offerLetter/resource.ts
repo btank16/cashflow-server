@@ -7,5 +7,7 @@ export const offerLetter = defineFunction({
   memoryMB: 128,
   environment: {
     GEMINI_API_KEY: secret('GeminiAPI')
-  }
+  },
+  architecture: 'arm64',
+  runtime: 22
 });

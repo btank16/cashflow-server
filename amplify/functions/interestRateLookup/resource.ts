@@ -7,5 +7,7 @@ export const interestRateLookup = defineFunction({
   memoryMB: 128,
   environment: {
     PERPLEXITY_API_KEY: secret('PerplexityAPI')
-  }
+  },
+  architecture: 'arm64',
+  runtime: 22
 });

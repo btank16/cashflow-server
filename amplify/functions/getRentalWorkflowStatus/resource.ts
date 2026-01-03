@@ -5,5 +5,7 @@ export const getRentalWorkflowStatus = defineFunction({
   entry: './handler.ts',
   timeoutSeconds: 10,
   memoryMB: 128,
-  resourceGroupName: 'data'
+  resourceGroupName: 'data',
+  architecture: 'arm64',
+  runtime: 22
 });
