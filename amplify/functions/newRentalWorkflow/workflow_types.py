@@ -205,7 +205,6 @@ class ApartmentCompEntry(BaseModel):
     sqft: Optional[int] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
-    rent_per_sqft: Optional[float] = None  # Calculated field for filtered output
 
 
 class ApartmentCompData(BaseModel):

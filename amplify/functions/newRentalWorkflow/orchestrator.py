@@ -1143,18 +1143,13 @@ class NewRentalWorkflowOrchestrator:
             entry_dict['price_per_sqft'] = per_sqft
             return SalesDataEntry(**entry_dict)
         else:  # apartment
-            if entry.rent is not None and entry.sqft is not None:
+            # Normalize rent value (parse string with $ and commas)
+            if entry.rent is not None:
                 try:
-                    # Parse rent (handle string with $ and commas for consistency)
                     rent_str = str(entry.rent).replace(',', '').replace('$', '')
-                    rent = float(rent_str)
-                    sqft_str = str(entry.sqft).replace(',', '')
-                    sqft = float(sqft_str)
-                    if sqft > 0:
-                        per_sqft = round(rent / sqft, 2)
+                    entry_dict['rent'] = float(rent_str)
                 except (ValueError, TypeError):
                     pass
-            entry_dict['rent_per_sqft'] = per_sqft
             return ApartmentCompEntry(**entry_dict)
 
     def _filter_and_analyze(
@@ -1207,25 +1202,25 @@ class NewRentalWorkflowOrchestrator:
 
                 for i, entry in enumerate(entries):
                     if i in inside_indices or i in boundary_indices:
-                        entry_with_per_sqft = self._calculate_per_sqft(entry, data_type)
-                        # For apartments, only include entries with valid per-sqft
+                        processed_entry = self._calculate_per_sqft(entry, data_type)
+                        # For apartments, only include entries with valid rent
                         if data_type == "apartment":
-                            if entry_with_per_sqft.rent_per_sqft is not None:
-                                filtered_entries.append(entry_with_per_sqft)
+                            if processed_entry.rent is not None:
+                                filtered_entries.append(processed_entry)
                         else:
-                            filtered_entries.append(entry_with_per_sqft)
+                            filtered_entries.append(processed_entry)
 
-        # Extract per-sqft values for outlier detection
+        # Extract values for outlier detection
         if data_type == "sales":
-            per_sqft_values = [e.price_per_sqft for e in filtered_entries]
+            analysis_values = [e.price_per_sqft for e in filtered_entries]
             field_name = 'price_per_sqft'
         else:
-            per_sqft_values = [e.rent_per_sqft for e in filtered_entries]
-            field_name = 'rent_per_sqft'
+            analysis_values = [e.rent for e in filtered_entries]
+            field_name = 'rent'
 
         # Apply IQR outlier filtering
         outlier_result = filter_iqr_outliers(
-            values=per_sqft_values,
+            values=analysis_values,
             min_count=self.config.min_count_for_outliers,
             iqr_multiplier=self.config.iqr_multiplier
         )
@@ -1233,17 +1228,17 @@ class NewRentalWorkflowOrchestrator:
         # Remove outliers from filtered_entries
         if outlier_result.was_applied and outlier_result.outlier_count > 0:
             filtered_entries = [filtered_entries[i] for i in outlier_result.filtered_indices]
-            # Update per_sqft_values to match filtered entries
+            # Update analysis_values to match filtered entries
             if data_type == "sales":
-                per_sqft_values = [e.price_per_sqft for e in filtered_entries if e.price_per_sqft is not None]
+                analysis_values = [e.price_per_sqft for e in filtered_entries if e.price_per_sqft is not None]
             else:
-                per_sqft_values = [e.rent_per_sqft for e in filtered_entries if e.rent_per_sqft is not None]
+                analysis_values = [e.rent for e in filtered_entries if e.rent is not None]
 
         # Calculate five-number summary on cleaned data
         summary = None
-        if per_sqft_values:
+        if analysis_values:
             summary_result = get_five_number_summary({
-                'values': per_sqft_values,
+                'values': analysis_values,
                 'field_name': field_name
             })
             if summary_result.success or summary_result.data:
@@ -1305,21 +1300,21 @@ class NewRentalWorkflowOrchestrator:
             for _, entry in entries_with_distance[:limit]
         ]
 
-        # For apartments, filter to entries with valid per-sqft
+        # For apartments, filter to entries with valid rent
         if data_type == "apartment":
-            closest_entries = [e for e in closest_entries if e.rent_per_sqft is not None]
+            closest_entries = [e for e in closest_entries if e.rent is not None]
 
-        # Extract per-sqft values for outlier detection
+        # Extract values for outlier detection
         if data_type == "sales":
-            per_sqft_values = [e.price_per_sqft for e in closest_entries]
+            analysis_values = [e.price_per_sqft for e in closest_entries]
             field_name = 'price_per_sqft'
         else:
-            per_sqft_values = [e.rent_per_sqft for e in closest_entries]
-            field_name = 'rent_per_sqft'
+            analysis_values = [e.rent for e in closest_entries]
+            field_name = 'rent'
 
         # Apply IQR outlier filtering
         outlier_result = filter_iqr_outliers(
-            values=per_sqft_values,
+            values=analysis_values,
             min_count=self.config.min_count_for_outliers,
             iqr_multiplier=self.config.iqr_multiplier
         )
@@ -1327,17 +1322,17 @@ class NewRentalWorkflowOrchestrator:
         # Remove outliers from closest_entries
         if outlier_result.was_applied and outlier_result.outlier_count > 0:
             closest_entries = [closest_entries[i] for i in outlier_result.filtered_indices]
-            # Update per_sqft_values to match filtered entries
+            # Update analysis_values to match filtered entries
             if data_type == "sales":
-                per_sqft_values = [e.price_per_sqft for e in closest_entries if e.price_per_sqft is not None]
+                analysis_values = [e.price_per_sqft for e in closest_entries if e.price_per_sqft is not None]
             else:
-                per_sqft_values = [e.rent_per_sqft for e in closest_entries if e.rent_per_sqft is not None]
+                analysis_values = [e.rent for e in closest_entries if e.rent is not None]
 
         # Calculate five-number summary on cleaned data
         summary = None
-        if per_sqft_values:
+        if analysis_values:
             summary_result = get_five_number_summary({
-                'values': per_sqft_values,
+                'values': analysis_values,
                 'field_name': field_name
             })
             if summary_result.success or summary_result.data:
