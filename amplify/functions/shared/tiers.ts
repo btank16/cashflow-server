@@ -41,7 +41,9 @@ export const TIERS: Record<TierName, TierConfig> = {
     displayName: 'Free',
     monthlyLimit: 3,
     features: [
+      FEATURES.RESIDENT_AI,
       FEATURES.CALCULATION_DATABASE,
+      FEATURES.INTEREST_RATE_LOOKUP,
     ],
     color: '#8E8E93',
     emoji: '🆓',
