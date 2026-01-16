@@ -8,7 +8,7 @@ Optimized version with:
 
 from typing import Dict, Any, List, Tuple, Optional, Set
 from collections import defaultdict
-from shapely.geometry import LineString, Point, Polygon, MultiPoint, MultiLineString
+from shapely.geometry import LineString, Point, Polygon, MultiPoint
 from shapely.ops import unary_union, polygonize
 from shapely.strtree import STRtree
 import networkx as nx
@@ -17,13 +17,10 @@ import logging
 from ..common.types import FunctionResult, ErrorCode
 from ..common.utils import create_error_response, create_success_response
 from ..common.osm_config import (
-    MAX_INTERPOLATION_DISTANCE,
     POLYGON_MIN_AREA,
     POLYGON_MAX_AREA,
     BBOX_BOUNDARY_CLASS,
-    get_boundary_class,
-    is_hard_boundary,
-    is_soft_boundary
+    get_boundary_class
 )
 
 logger = logging.getLogger(__name__)
@@ -85,6 +82,9 @@ class BoundaryBuilder:
         # Store polygon data for adjacency analysis
         self.all_polygons: List[Polygon] = []
         self.polygon_adjacency: Dict[int, Dict[int, str]] = {}
+
+        # Edge-to-polygon mapping for efficient adjacency building
+        self._edge_to_polygons: Dict[Tuple, List[int]] = {}
 
         logger.info(f"BoundaryBuilder initialized with {len(osm_ways)} ways")
 
@@ -389,7 +389,11 @@ class BoundaryBuilder:
         logger.info(f"Built graph with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
 
     def _extract_faces(self) -> List[Polygon]:
-        """Extract all faces (closed regions) from the planar graph."""
+        """Extract all faces (closed regions) from the planar graph.
+
+        Also builds edge-to-polygon mapping stored in self._edge_to_polygons
+        for efficient adjacency computation.
+        """
         try:
             all_lines = []
 
@@ -401,14 +405,29 @@ class BoundaryBuilder:
             # Find all polygons formed by these lines
             polygons = list(polygonize(all_lines))
 
-            # Filter valid polygons
+            # Filter valid polygons and build edge-to-polygon mapping
             valid_polygons = []
+            edge_to_polygons: Dict[Tuple, List[int]] = defaultdict(list)
+
             for polygon in polygons:
                 area = polygon.area
                 if POLYGON_MIN_AREA <= area <= POLYGON_MAX_AREA:
+                    poly_idx = len(valid_polygons)
                     valid_polygons.append(polygon)
+
+                    # Extract edges from polygon boundary and map to this polygon
+                    coords = list(polygon.exterior.coords)
+                    for i in range(len(coords) - 1):
+                        # Snap to grid for consistency with edge_metadata keys
+                        p1 = snap_to_grid(coords[i])
+                        p2 = snap_to_grid(coords[i + 1])
+                        edge_key = tuple(sorted([p1, p2], key=lambda p: (p[0], p[1])))
+                        edge_to_polygons[edge_key].append(poly_idx)
                 else:
                     logger.debug(f"Filtered polygon with area {area} (outside valid range)")
+
+            # Store for use in adjacency building
+            self._edge_to_polygons = dict(edge_to_polygons)
 
             logger.info(f"Extracted {len(valid_polygons)} valid polygons from {len(polygons)} total")
             return valid_polygons
@@ -421,82 +440,50 @@ class BoundaryBuilder:
         """
         Build adjacency graph between polygons with boundary classification.
 
+        Uses edge-centric approach for O(e) complexity instead of O(n²).
+        Iterates edges once and uses pre-computed edge_to_polygons mapping.
+
         Args:
             polygons: List of Shapely Polygon objects
 
         Returns:
             Dict mapping polygon_idx -> {adjacent_polygon_idx: boundary_class, ...}
 
-        The boundary_class is determined by the shared edge:
-        - "hard": Adjacent via motorway, trunk, primary, or bbox edge
+        The boundary_class is determined by the shared edge(s):
+        - "hard": Adjacent via motorway, trunk, or bbox edge (never crossed)
+        - "tier_three": Adjacent via primary roads (crossed only in tier 3 expansion)
         - "soft": Adjacent via secondary roads, railways, or waterways
+
+        When multiple edges exist between a polygon pair, uses the most
+        restrictive classification (hard > tier_three > soft).
         """
         adjacency: Dict[int, Dict[int, str]] = {i: {} for i in range(len(polygons))}
 
-        for i, poly1 in enumerate(polygons):
-            for j, poly2 in enumerate(polygons[i + 1:], start=i + 1):
-                # Check if polygons share an edge
-                shared_boundary = poly1.boundary.intersection(poly2.boundary)
+        # Priority for boundary classes (lower = more restrictive)
+        PRIORITY = {"hard": 0, "tier_three": 1, "soft": 2}
 
-                if shared_boundary.is_empty:
-                    continue
+        # Track all edges between each polygon pair
+        pair_edges: Dict[Tuple[int, int], List[str]] = defaultdict(list)
 
-                # Calculate length of shared boundary
-                if hasattr(shared_boundary, 'length'):
-                    if shared_boundary.length < 1e-8:
-                        continue  # Not a significant shared edge
-                else:
-                    continue
+        # Iterate edges once - O(e) complexity
+        for edge_key, poly_indices in self._edge_to_polygons.items():
+            if len(poly_indices) == 2:
+                # This edge is shared by exactly 2 polygons - they're adjacent
+                i, j = sorted(poly_indices)
 
-                # Determine boundary type of the shared edge
-                boundary_class = self._classify_shared_boundary(shared_boundary)
+                # Direct lookup of boundary class from edge metadata
+                boundary_class = self.edge_metadata.get(edge_key, {}).get("boundary_class", "soft")
+                pair_edges[(i, j)].append(boundary_class)
 
-                adjacency[i][j] = boundary_class
-                adjacency[j][i] = boundary_class
+        # For each polygon pair, use most restrictive classification
+        for (i, j), classes in pair_edges.items():
+            # Most restrictive wins (hard > tier_three > soft)
+            final_class = min(classes, key=lambda c: PRIORITY.get(c, 2))
+            adjacency[i][j] = final_class
+            adjacency[j][i] = final_class
 
+        logger.info(f"Built polygon adjacency graph with {sum(len(adj) for adj in adjacency.values()) // 2} edges")
         return adjacency
-
-    def _classify_shared_boundary(self, shared_boundary) -> str:
-        """
-        Classify the shared boundary between two polygons as hard or soft.
-
-        Samples points along the shared boundary and checks edge metadata.
-        If ANY part of the shared edge is a hard boundary, returns "hard".
-        """
-        sample_points = []
-
-        if isinstance(shared_boundary, Point):
-            sample_points.append((shared_boundary.x, shared_boundary.y))
-        elif isinstance(shared_boundary, LineString):
-            # Sample at 25%, 50%, 75% along the line
-            for frac in [0.25, 0.5, 0.75]:
-                point = shared_boundary.interpolate(frac, normalized=True)
-                sample_points.append((point.x, point.y))
-        elif isinstance(shared_boundary, MultiLineString):
-            for geom in shared_boundary.geoms:
-                if isinstance(geom, LineString) and geom.length > 1e-8:
-                    point = geom.interpolate(0.5, normalized=True)
-                    sample_points.append((point.x, point.y))
-
-        # Check each sample point against edge metadata
-        for sample_coords in sample_points:
-            boundary_class = self._get_boundary_class_at_point(sample_coords)
-            if boundary_class == "hard":
-                return "hard"
-
-        return "soft"
-
-    def _get_boundary_class_at_point(self, coords: Tuple[float, float]) -> str:
-        """Get the boundary class for the edge at a specific point."""
-        sample_point = Point(coords)
-
-        # Find the edge that contains this point
-        for edge_key, metadata in self.edge_metadata.items():
-            edge_line = LineString([edge_key[0], edge_key[1]])
-            if edge_line.distance(sample_point) < 1e-6:
-                return metadata.get("boundary_class", "soft")
-
-        return "soft"
 
     def build_all_polygons(self) -> List[Polygon]:
         """
@@ -538,7 +525,7 @@ class BoundaryBuilder:
         self,
         target_coords: Tuple[float, float],
         polygons: List[Polygon]
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[int]]:
+    ) -> Tuple[Optional[Polygon], Optional[int]]:
         """
         Select the smallest polygon containing the target address.
 
@@ -547,7 +534,7 @@ class BoundaryBuilder:
             polygons: List of candidate polygons
 
         Returns:
-            Tuple of (GeoJSON polygon, polygon_index) or (None, None) if no match
+            Tuple of (Shapely Polygon, polygon_index) or (None, None) if no match
         """
         target_point = Point(target_coords)
 
@@ -569,62 +556,7 @@ class BoundaryBuilder:
             f"from {len(containing_polygons)} containing polygons"
         )
 
-        # Convert to GeoJSON
-        geojson = self._polygon_to_geojson(smallest_polygon, target_coords)
-        return geojson, selected_idx
-
-    def _polygon_to_geojson(
-        self,
-        polygon: Polygon,
-        target_coords: Tuple[float, float]
-    ) -> Dict[str, Any]:
-        """
-        Convert Shapely polygon to GeoJSON format with metadata.
-
-        Args:
-            polygon: Shapely Polygon object
-            target_coords: (longitude, latitude) of target address
-
-        Returns:
-            GeoJSON Feature with polygon and properties
-        """
-        # Get exterior coordinates
-        coords = list(polygon.exterior.coords)
-
-        # Calculate statistics
-        area_sq_degrees = polygon.area
-        num_vertices = len(coords) - 1
-
-        # Find which ways form the boundary
-        boundary_ways = []
-        for linestring, metadata in self.linestrings:
-            if polygon.boundary.distance(linestring) < 1e-6:
-                boundary_ways.append({
-                    'category': metadata['category'],
-                    'type': metadata['type'],
-                    'name': metadata['name'],
-                    'boundary_class': metadata.get('boundary_class', 'soft')
-                })
-
-        geojson = {
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Polygon',
-                'coordinates': [coords]
-            },
-            'properties': {
-                'area_sq_degrees': area_sq_degrees,
-                'area_sq_km': area_sq_degrees * 111 * 111,
-                'num_vertices': num_vertices,
-                'target_coords': {
-                    'lon': target_coords[0],
-                    'lat': target_coords[1]
-                },
-                'boundary_ways': boundary_ways[:10]
-            }
-        }
-
-        return geojson
+        return smallest_polygon, selected_idx
 
     def expand_through_soft_boundaries(
         self,
@@ -760,13 +692,13 @@ def build_boundary_polygon(
 
     Returns:
         FunctionResult containing:
-        - polygon: Selected polygon as GeoJSON
+        - polygon: Selected Shapely Polygon object
+        - polygon_area_sq_degrees: Area of the polygon in square degrees
         - total_polygons_found: Count of all polygons
-        - selected_polygon_idx: Index of selected polygon (if enable_expansion)
+        - selected_polygon_idx: Index of selected polygon
         - If enable_expansion=True:
-            - all_polygons_geojson: All polygons as GeoJSON (for debugging)
             - adjacency: Polygon adjacency graph
-            - builder: Reference to BoundaryBuilder for expansion
+            - _builder: Reference to BoundaryBuilder for expansion
     """
     try:
         builder = BoundaryBuilder(osm_ways, bbox)
@@ -780,7 +712,7 @@ def build_boundary_polygon(
                 ErrorCode.DATA_VALIDATION_ERROR
             )
 
-        # Select polygon containing target address
+        # Select polygon containing target address (returns Shapely Polygon directly)
         selected_polygon, selected_idx = builder.select_polygon_for_address(target_coords, all_polygons)
 
         if not selected_polygon:
@@ -790,7 +722,8 @@ def build_boundary_polygon(
             )
 
         result_data = {
-            'polygon': selected_polygon,
+            'polygon': selected_polygon,  # Shapely Polygon object
+            'polygon_area_sq_degrees': selected_polygon.area,
             'total_polygons_found': len(all_polygons),
             'selected_polygon_idx': selected_idx
         }
@@ -823,7 +756,6 @@ def build_boundary_polygon(
 
 def expand_boundary_polygon(
     boundary_result: Dict[str, Any],
-    target_coords: Tuple[float, float],
     max_tiers: int = 2,
     enable_tier_three: bool = False,
     current_data_count: int = 0,
@@ -834,14 +766,17 @@ def expand_boundary_polygon(
 
     Args:
         boundary_result: Result data from build_boundary_polygon(enable_expansion=True)
-        target_coords: (longitude, latitude) of target address (for GeoJSON)
         max_tiers: Maximum tier 1-2 expansion tiers (default 2)
         enable_tier_three: If True, allow tier 3 expansion through primary roads
         current_data_count: Current filtered data count (used for tier 3 decision)
         min_data_for_tier_three: Trigger tier 3 if data count <= this value (default 2)
 
     Returns:
-        FunctionResult with expanded polygon as GeoJSON
+        FunctionResult containing:
+        - polygon: Expanded Shapely Polygon object
+        - polygon_area_sq_degrees: Area of the expanded polygon
+        - expansion_metadata: Dict with expansion details
+        - is_expanded: Boolean indicating if expansion occurred
     """
     try:
         builder = boundary_result.get('_builder')
@@ -874,12 +809,10 @@ def expand_boundary_polygon(
                 ErrorCode.INTERNAL_ERROR
             )
 
-        # Convert to GeoJSON
-        expanded_geojson = builder._polygon_to_geojson(expanded_polygon, target_coords)
-
         return create_success_response(
             {
-                'polygon': expanded_geojson,
+                'polygon': expanded_polygon,  # Shapely Polygon object
+                'polygon_area_sq_degrees': expanded_polygon.area,
                 'expansion_metadata': expansion_metadata,
                 'is_expanded': expansion_metadata['included_polygon_count'] > 1
             },

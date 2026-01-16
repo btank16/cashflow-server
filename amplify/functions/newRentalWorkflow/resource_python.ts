@@ -7,19 +7,28 @@ import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineFunction } from '@aws-amplify/backend';
-import { DockerImage, Duration } from 'aws-cdk-lib';
-import { Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { Aws, DockerImage, Duration } from 'aws-cdk-lib';
+import { Code, Function, LayerVersion, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 
 const functionDir = path.dirname(fileURLToPath(import.meta.url));
 
 export const newRentalWorkflow = defineFunction(
   (scope) => {
+    // AWS Lambda Powertools layer for Python
+    // Provides parameters utility for SSM retrieval with caching
+    const powertoolsLayer = LayerVersion.fromLayerVersionArn(
+      scope,
+      'PowertoolsLayer',
+      `arn:aws:lambda:${Aws.REGION}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python312-x86_64:18`
+    );
+
     const lambdaFunction = new Function(scope, 'newRentalWorkflow', {
       handler: 'index.handler',
       runtime: Runtime.PYTHON_3_12,
-      timeout: Duration.seconds(540),
+      timeout: Duration.seconds(600),
       memorySize: 512,
+      layers: [powertoolsLayer],
       code: Code.fromAsset(functionDir, {
         bundling: {
           image: DockerImage.fromRegistry('dummy'),
@@ -56,6 +65,10 @@ export const newRentalWorkflow = defineFunction(
     // This is a placeholder - the actual table name will be injected during deployment
     lambdaFunction.addEnvironment('WORKFLOW_JOB_TABLE_NAME', '');
 
+    // Environment variable for RateLimitCounter DynamoDB table (will be set by backend.ts)
+    // Used for distributed rate limiting across Lambda invocations
+    lambdaFunction.addEnvironment('RATE_LIMIT_TABLE_NAME', '');
+
     // Grant Lambda permission to read all required SSM parameters
     lambdaFunction.addToRolePolicy(
       new PolicyStatement({
@@ -80,6 +93,21 @@ export const newRentalWorkflow = defineFunction(
         ],
         resources: [
           `arn:aws:dynamodb:*:*:table/*WorkflowJob*`,
+        ],
+      })
+    );
+
+    // Grant Lambda permission to read/write RateLimitCounter DynamoDB table
+    // Used for distributed rate limiting of external API calls
+    lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [
+          'dynamodb:GetItem',
+          'dynamodb:PutItem',
+          'dynamodb:UpdateItem'
+        ],
+        resources: [
+          `arn:aws:dynamodb:*:*:table/*RateLimitCounter*`,
         ],
       })
     );

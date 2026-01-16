@@ -19,7 +19,6 @@ export type TierName = 'basic' | 'beta' | 'premium' | 'platinum' | 'admin';
 
 export interface TierConfig {
   displayName: string;
-  dailyLimit: number | null;      // null = unlimited
   monthlyLimit: number | null;    // null = unlimited
   features: string[];
   color: string;                  // For UI display
@@ -29,58 +28,71 @@ export interface TierConfig {
 // Feature flags
 export const FEATURES = {
   RESIDENT_AI: 'resident-ai',
-  BASIC_CALCULATORS: 'basic-calculators',
-  SAVE_CALCULATIONS: 'save-calculations',
+  CALCULATION_DATABASE: 'calculation-database',
+  EXPENSE_DATABASE: 'expense-database',
+  GEMINI_ARTICLES: 'gemini-articles',
+  INTEREST_RATE_LOOKUP: 'interest-rate-lookup',
+  OFFER_LETTER: 'offer-letter',
+  BRANDED_PDF: 'branded-pdf',
 } as const;
 
 export const TIERS: Record<TierName, TierConfig> = {
   basic: {
     displayName: 'Free',
-    dailyLimit: 0,
-    monthlyLimit: 0,
-    features: [FEATURES.BASIC_CALCULATORS, FEATURES.SAVE_CALCULATIONS],
+    monthlyLimit: 3,
+    features: [
+      FEATURES.RESIDENT_AI,
+      FEATURES.CALCULATION_DATABASE,
+      FEATURES.INTEREST_RATE_LOOKUP,
+    ],
     color: '#8E8E93',
     emoji: '🆓',
   },
   beta: {
     displayName: 'Beta Tester',
-    dailyLimit: 3,
-    monthlyLimit: null,  // No monthly limit for beta users
+    monthlyLimit: 50,
     features: [
-      FEATURES.BASIC_CALCULATORS,
-      FEATURES.SAVE_CALCULATIONS,
       FEATURES.RESIDENT_AI,
+      FEATURES.CALCULATION_DATABASE,
+      FEATURES.EXPENSE_DATABASE,
+      FEATURES.GEMINI_ARTICLES,
+      FEATURES.INTEREST_RATE_LOOKUP,
+      FEATURES.OFFER_LETTER,
+      FEATURES.BRANDED_PDF,
     ],
     color: '#AF52DE',
     emoji: '🧪',
   },
   premium: {
     displayName: 'Premium',
-    dailyLimit: 25,
-    monthlyLimit: 500,
+    monthlyLimit: 50,
     features: [
-      FEATURES.BASIC_CALCULATORS,
-      FEATURES.SAVE_CALCULATIONS,
       FEATURES.RESIDENT_AI,
+      FEATURES.CALCULATION_DATABASE,
+      FEATURES.EXPENSE_DATABASE,
+      FEATURES.GEMINI_ARTICLES,
+      FEATURES.INTEREST_RATE_LOOKUP,
     ],
     color: '#007AFF',
     emoji: '⭐',
   },
   platinum: {
     displayName: 'Platinum',
-    dailyLimit: 100,
-    monthlyLimit: 2000,
+    monthlyLimit: 200,
     features: [
-      FEATURES.BASIC_CALCULATORS,
-      FEATURES.SAVE_CALCULATIONS,
       FEATURES.RESIDENT_AI,
+      FEATURES.CALCULATION_DATABASE,
+      FEATURES.EXPENSE_DATABASE,
+      FEATURES.GEMINI_ARTICLES,
+      FEATURES.INTEREST_RATE_LOOKUP,
+      FEATURES.OFFER_LETTER,
+      FEATURES.BRANDED_PDF,
     ],
     color: '#FF9500',
     emoji: '🚀',
   },
   admin: {
     displayName: 'Admin',
-    dailyLimit: null,
     monthlyLimit: null,
     features: ['all'],
     color: '#34C759',

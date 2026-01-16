@@ -53,6 +53,18 @@ class SingleValueOutput(BaseModel):
     field_name: Optional[str] = None
 
 
+class OutlierFilterResult(BaseModel):
+    """Result of IQR-based outlier filtering."""
+    filtered_indices: List[int]  # Indices of entries to keep
+    outlier_indices: List[int]  # Indices of entries identified as outliers
+    lower_bound: Optional[float] = None  # Q1 - (iqr_multiplier * IQR)
+    upper_bound: Optional[float] = None  # Q3 + (iqr_multiplier * IQR)
+    was_applied: bool  # False if count < min_count (insufficient data)
+    original_count: int
+    filtered_count: int
+    outlier_count: int
+
+
 @measure_execution_time
 def get_five_number_summary(
     input_data: Dict[str, Any]
@@ -177,3 +189,85 @@ def get_five_number_summary(
             ErrorCode.INTERNAL_ERROR,
             metadata=metadata
         )
+
+
+def filter_iqr_outliers(
+    values: List[Optional[float]],
+    min_count: int = 5,
+    iqr_multiplier: float = 1.5
+) -> OutlierFilterResult:
+    """
+    Identify outliers using the IQR method and return indices to keep/remove.
+
+    The IQR method defines outliers as values that fall outside:
+    - Lower bound: Q1 - (iqr_multiplier * IQR)
+    - Upper bound: Q3 + (iqr_multiplier * IQR)
+
+    Args:
+        values: List of numeric values (None values are ignored but preserve index)
+        min_count: Minimum number of valid data points required to apply outlier detection.
+                   If fewer valid points exist, all entries are kept.
+        iqr_multiplier: Multiplier for IQR to determine bounds (default 1.5 is standard)
+
+    Returns:
+        OutlierFilterResult with indices of entries to keep and remove
+    """
+    # Build list of (original_index, value) for valid values
+    indexed_values = [
+        (i, v) for i, v in enumerate(values)
+        if v is not None
+    ]
+
+    original_count = len(values)
+    valid_count = len(indexed_values)
+
+    # If insufficient data for outlier detection, keep all entries
+    if valid_count < min_count:
+        return OutlierFilterResult(
+            filtered_indices=list(range(original_count)),
+            outlier_indices=[],
+            lower_bound=None,
+            upper_bound=None,
+            was_applied=False,
+            original_count=original_count,
+            filtered_count=original_count,
+            outlier_count=0
+        )
+
+    # Extract just the values and sort for quartile calculation
+    valid_values = [v for _, v in indexed_values]
+    sorted_values = sorted(valid_values)
+
+    # Calculate Q1, Q3, and IQR
+    quartiles = statistics.quantiles(sorted_values, n=4, method='inclusive')
+    q1 = quartiles[0]
+    q3 = quartiles[2]
+    iqr = q3 - q1
+
+    # Calculate bounds
+    lower_bound = q1 - (iqr_multiplier * iqr)
+    upper_bound = q3 + (iqr_multiplier * iqr)
+
+    # Identify outliers and non-outliers
+    filtered_indices = []
+    outlier_indices = []
+
+    for i, v in enumerate(values):
+        if v is None:
+            # Keep entries with None values (they weren't part of calculation)
+            filtered_indices.append(i)
+        elif lower_bound <= v <= upper_bound:
+            filtered_indices.append(i)
+        else:
+            outlier_indices.append(i)
+
+    return OutlierFilterResult(
+        filtered_indices=filtered_indices,
+        outlier_indices=outlier_indices,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
+        was_applied=True,
+        original_count=original_count,
+        filtered_count=len(filtered_indices),
+        outlier_count=len(outlier_indices)
+    )

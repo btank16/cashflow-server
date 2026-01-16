@@ -4,8 +4,7 @@ from .types import (
     ErrorCode,
     FunctionMetadata,
     FunctionResult,
-    Address,
-    ExtendedAddress
+    Address
 )
 from .utils import (
     validate_input,
@@ -22,11 +21,6 @@ from .rentcast_client import RentcastClient
 from .gemini_client import GeminiClient, GeminiRequest
 from .base_ai_client import BaseAIClient
 from .aws_clients import (
-    AWSSecretsManager,
-    get_ssm_parameter,
-    get_perplexity_client_from_env,
-    get_gemini_client_from_env,
-    get_rentcast_client_from_env,
     get_all_api_clients_from_env,
     APIClients
 )
@@ -37,10 +31,18 @@ from .rate_limiter import (
     get_rentcast_limiter,
     reset_all_limiters
 )
+from .distributed_rate_limiter import (
+    DistributedRateLimiter,
+    RateLimitService,
+    RateLimitConfig,
+    RATE_LIMIT_CONFIGS,
+    DistributedRateLimitError,
+    get_distributed_limiter,
+    acquire_rate_limit,
+    try_acquire_rate_limit,
+    reset_distributed_limiter
+)
 from .logging_utils import (
-    mask_pii,
-    hash_for_correlation,
-    sanitize_for_logging,
     log_workflow_start,
     log_workflow_complete
 )
@@ -56,7 +58,6 @@ __all__ = [
     'FunctionMetadata',
     'FunctionResult',
     'Address',
-    'ExtendedAddress',
     # Utility functions
     'validate_input',
     'create_error_response',
@@ -74,23 +75,25 @@ __all__ = [
     'GeminiRequest',
     'BaseAIClient',
     # AWS utilities
-    'AWSSecretsManager',
-    'get_ssm_parameter',
-    'get_perplexity_client_from_env',
-    'get_gemini_client_from_env',
-    'get_rentcast_client_from_env',
     'get_all_api_clients_from_env',
     'APIClients',
-    # Rate limiting
+    # Rate limiting (local - per Lambda instance)
     'RateLimiter',
     'MultiServiceRateLimiter',
     'get_nominatim_limiter',
     'get_rentcast_limiter',
     'reset_all_limiters',
+    # Rate limiting (distributed - across Lambda instances via DynamoDB)
+    'DistributedRateLimiter',
+    'RateLimitService',
+    'RateLimitConfig',
+    'RATE_LIMIT_CONFIGS',
+    'DistributedRateLimitError',
+    'get_distributed_limiter',
+    'acquire_rate_limit',
+    'try_acquire_rate_limit',
+    'reset_distributed_limiter',
     # Logging utilities
-    'mask_pii',
-    'hash_for_correlation',
-    'sanitize_for_logging',
     'log_workflow_start',
     'log_workflow_complete',
     # Perplexity factory

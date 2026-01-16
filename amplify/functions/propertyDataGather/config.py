@@ -5,18 +5,12 @@ import os
 # API Keys (for local development only - Lambda uses SSM)
 # These are not used in Lambda deployment, only for local testing
 PERPLEXITY_API_KEY = os.getenv('PERPLEXITY_API_KEY')
-APIFY_API_KEY = os.getenv('APIFY_API_KEY')
 RENTCAST_API_KEY = os.getenv('RENTCAST_API_KEY')
 
 # Default timeouts and retries
 DEFAULT_TIMEOUT = 30
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 1.0
-
-# Apify Configuration
-APIFY_ACTOR_ID = 'maxcopell/zillow-zip-search'
-APIFY_DEFAULT_TIMEOUT = 300  # 5 minutes
-APIFY_DEFAULT_MAX_ITEMS = 50
 
 # Rentcast Configuration
 RENTCAST_BASE_URL = 'https://api.rentcast.io/v1'

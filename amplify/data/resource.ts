@@ -6,6 +6,9 @@ import { getEntitlements } from '../functions/getEntitlements/resource';
 import { grantBetaAccess } from '../functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from '../functions/revokeBetaAccess/resource';
 import { listBetaUsers } from '../functions/listBetaUsers/resource';
+import { geminiArticles } from '../functions/geminiArticles/resource';
+import { offerLetter } from '../functions/offerLetter/resource';
+import { interestRateLookup } from '../functions/interestRateLookup/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -24,7 +27,8 @@ const schema = a.schema({
       city: a.string().required(),
       state: a.string().required(),
       zip: a.string().required(),
-      timezone: a.string()  // User's timezone for daily limit calculation
+      timezone: a.string(),  // User's timezone for billing period calculation
+      config: a.json()  // Optional workflow configuration (e.g., { skip_rental_comps: true })
     })
     .returns(a.customType({
       jobId: a.string(),
@@ -59,7 +63,8 @@ const schema = a.schema({
       street: a.string().required(),
       city: a.string().required(),
       state: a.string().required(),
-      zip: a.string().required()
+      zip: a.string().required(),
+      config: a.json()  // Optional workflow configuration (e.g., { skip_rental_comps: true })
     })
     .returns(a.customType({
       success: a.boolean(),
@@ -78,17 +83,16 @@ const schema = a.schema({
   getMyEntitlements: a
     .query()
     .arguments({
-      timezone: a.string()  // User's timezone for accurate daily usage
+      timezone: a.string()  // User's timezone for billing period calculation
     })
     .returns(a.customType({
       tier: a.string().required(),
       displayName: a.string().required(),
-      dailyLimit: a.integer(),
       monthlyLimit: a.integer(),
-      dailyUsed: a.integer().required(),
-      dailyRemaining: a.integer(),
       monthlyUsed: a.integer().required(),
       monthlyRemaining: a.integer(),
+      periodStart: a.string().required(),  // YYYY-MM-DD
+      periodEnd: a.string().required(),    // YYYY-MM-DD
       features: a.string().array().required(),
       canUseResidentAI: a.boolean().required(),
       isAdmin: a.boolean().required(),
@@ -141,13 +145,68 @@ const schema = a.schema({
     .handler(a.handler.function(listBetaUsers)),
 
   // =============================================================================
+  // Gemini AI
+  // =============================================================================
+
+  // Generate article content using Gemini 2.0 Flash
+  geminiArticles: a
+    .query()
+    .arguments({
+      systemPrompt: a.string().required(),
+      userPrompt: a.string().required()
+    })
+    .returns(a.customType({
+      success: a.boolean().required(),
+      description: a.string(),
+      question_one: a.string(),
+      question_two: a.string(),
+      question_three: a.string(),
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(geminiArticles)),
+
+  // Generate offer letter using Gemini AI
+  generateOfferLetter: a
+    .mutation()
+    .arguments({
+      offerType: a.string().required(),  // 'rental', 'flip', 'brrrr'
+      receiver: a.string().required(),
+      inputData: a.json().required(),
+      senderFirstName: a.string(),  // Optional: sender's first name for letter signature
+      senderLastName: a.string()    // Optional: sender's last name for letter signature
+    })
+    .returns(a.customType({
+      success: a.boolean().required(),
+      letter: a.string(),
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(offerLetter)),
+
+  // Look up current mortgage interest rates
+  lookupInterestRate: a
+    .query()
+    .arguments({
+      loanType: a.string().required(),      // e.g., "30-year fixed"
+      isPersonal: a.boolean().required(),   // true = primary residence, false = investment
+      downPayment: a.integer().required(),  // 5, 10, 15, or 20
+      state: a.string().required()          // e.g., "Ohio"
+    })
+    .returns(a.customType({
+      baseRate: a.float().required(),
+      adjRate: a.float().required()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(interestRateLookup)),
+
+  // =============================================================================
   // Data Models
   // =============================================================================
 
   // Workflow job tracking for async operations
   WorkflowJob: a
     .model({
-      user_id: a.string(),
       status: a.enum(['pending', 'processing', 'completed', 'failed']),
       current_step: a.string(),
       completed_steps: a.json(),
@@ -156,10 +215,7 @@ const schema = a.schema({
       metadata: a.json(),
       error: a.string()
     })
-    .authorization(allow => [allow.owner()])
-    .secondaryIndexes(index => [
-      index('user_id')
-    ]),
+    .authorization(allow => [allow.owner()]),
 
   // Usage tracking for rate limiting
   // Note: Lambda functions access this via direct DynamoDB SDK calls
@@ -167,7 +223,7 @@ const schema = a.schema({
   UsageRecord: a
     .model({
       userId: a.string().required(),
-      periodFunction: a.string().required(),  // 'daily#YYYY-MM-DD#timezone#functionName'
+      periodFunction: a.string().required(),  // 'billing#YYYY-MM-DD#timezone#functionName' or 'anchor#timezone#functionName'
       count: a.integer().default(0),
       tier: a.string(),  // Snapshot of tier at usage time
       ttl: a.integer()   // TTL for automatic DynamoDB cleanup
@@ -175,6 +231,22 @@ const schema = a.schema({
     .identifier(['userId', 'periodFunction'])
     .authorization(allow => [
       allow.owner().to(['read'])
+    ]),
+
+  // Distributed rate limiting for external API calls (Nominatim, Rentcast, Overpass)
+  // Uses sliding window counter algorithm with DynamoDB atomic updates
+  // Note: Lambda functions access this via direct DynamoDB SDK calls
+  // Permissions granted in backend.ts
+  RateLimitCounter: a
+    .model({
+      service: a.string().required(),       // Service name: 'nominatim', 'rentcast', 'overpass'
+      window: a.string().required(),        // Time window: unix timestamp (e.g., '1703001234')
+      request_count: a.integer().default(0), // Number of requests in this window
+      ttl: a.integer()                      // TTL for automatic cleanup (60 seconds after window)
+    })
+    .identifier(['service', 'window'])
+    .authorization(allow => [
+      allow.authenticated().to(['read'])    // Lambda uses IAM, not user auth
     ]),
 
   // User subscription data (for future Stripe integration)
@@ -189,7 +261,6 @@ const schema = a.schema({
       // Subscription data
       tier: a.enum(['basic', 'beta', 'premium', 'platinum', 'admin']),
       status: a.enum(['active', 'canceled', 'past_due', 'trialing', 'legacy']),
-      dailyLimit: a.integer(),
       monthlyLimit: a.integer(),
       features: a.string().array(),
       // Billing cycle

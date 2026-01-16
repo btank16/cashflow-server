@@ -4,11 +4,13 @@ import { data } from './data/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
-import { testGeocoding } from './functions/testGeocoding/resource_python';
 import { getEntitlements } from './functions/getEntitlements/resource';
 import { grantBetaAccess } from './functions/grantBetaAccess/resource';
 import { revokeBetaAccess } from './functions/revokeBetaAccess/resource';
 import { listBetaUsers } from './functions/listBetaUsers/resource';
+import { interestRateLookup } from './functions/interestRateLookup/resource';
+import { geminiArticles } from './functions/geminiArticles/resource';
+import { offerLetter } from './functions/offerLetter/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
 
@@ -21,11 +23,13 @@ const backend = defineBackend({
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
-  testGeocoding,
   getEntitlements,
   grantBetaAccess,
   revokeBetaAccess,
-  listBetaUsers
+  listBetaUsers,
+  interestRateLookup,
+  geminiArticles,
+  offerLetter
 });
 
 // =============================================================================
@@ -33,8 +37,10 @@ const backend = defineBackend({
 // =============================================================================
 const workflowJobTable = backend.data.resources.tables['WorkflowJob'];
 const usageRecordTable = backend.data.resources.tables['UsageRecord'];
+const rateLimitCounterTable = backend.data.resources.tables['RateLimitCounter'];
 const workflowJobTableName = workflowJobTable.tableName;
 const usageRecordTableName = usageRecordTable.tableName;
+const rateLimitCounterTableName = rateLimitCounterTable.tableName;
 
 // =============================================================================
 // Lambda Function References
@@ -78,7 +84,9 @@ workflowJobTable.grantReadData(getRentalWorkflowStatusLambda);
 // newRentalWorkflow (Python) Configuration
 // =============================================================================
 newRentalWorkflowLambda.addEnvironment('WORKFLOW_JOB_TABLE_NAME', workflowJobTableName);
+newRentalWorkflowLambda.addEnvironment('RATE_LIMIT_TABLE_NAME', rateLimitCounterTableName);
 workflowJobTable.grantReadWriteData(newRentalWorkflowLambda);
+rateLimitCounterTable.grantReadWriteData(newRentalWorkflowLambda);
 
 // =============================================================================
 // getEntitlements Configuration

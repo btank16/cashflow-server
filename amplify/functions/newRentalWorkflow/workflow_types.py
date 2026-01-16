@@ -25,7 +25,6 @@ class WorkflowStepStatus(str, Enum):
 class WorkflowStep(str, Enum):
     """Enumeration of all workflow steps."""
     VALIDATION = 'validation'
-    INTEREST_RATE = 'interest_rate'
     BOUNDARY_ANALYSIS = 'boundary_analysis'
     PROPERTY_INFO = 'property_info'
     PROPERTY_TAX = 'property_tax'
@@ -47,17 +46,23 @@ class NewRentalWorkflowInput(BaseModel):
 
 class WorkflowConfig(BaseModel):
     """Configuration options for the workflow."""
-    default_down_payment: float = 20.0
-    default_loan_type: str = "30-year fixed"
-    sales_time_period: str = "6 months"
+    sales_time_period: int = 6  # Number of months
+    sales_limit: int = 50  # Max number of sales to find
+    rental_listings_limit: int = 500  # Max number of rental listings to fetch
     sqft_tolerance_percent: float = 0.10  # +/-10%
     search_radius_miles: float = 2.0
-    is_primary_residence: bool = False
     # Polygon expansion settings
     enable_polygon_expansion: bool = True
     min_data_for_analysis: int = 5  # Minimum data points before tier 1-2 expansion
     max_expansion_tiers: int = 2  # Maximum tier 1-2 expansion iterations
     min_data_for_tier_three: int = 2  # If ≤ this after tier 2, trigger tier 3 (crosses primary roads)
+    # Distance fallback settings (when polygon unavailable)
+    fallback_comp_count: int = 5  # Number of closest comps to return when polygon unavailable
+    # Outlier detection settings (IQR method)
+    min_count_for_outliers: int = 8  # Minimum data points required to apply outlier detection
+    iqr_multiplier: float = 1.5  # Multiplier for IQR to determine outlier bounds (1.5 is standard)
+    # Rental comp settings
+    skip_rental_comps: bool = False  # Skip apartment comps gathering (for sales-only workflows)
 
 
 # =============================================================================
@@ -121,8 +126,7 @@ class PolygonExpansionMetadata(BaseModel):
 
 
 class PolygonData(BaseModel):
-    """Boundary polygon data."""
-    polygon: Optional[Dict[str, Any]] = None  # GeoJSON polygon
+    """Boundary polygon metadata (polygon geometry stored separately as Shapely object)."""
     osm_ways_count: int = 0
     polygon_area_sq_degrees: Optional[float] = None
     construction_method: Optional[str] = None
@@ -131,14 +135,6 @@ class PolygonData(BaseModel):
     # Expansion fields
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
-
-
-class InterestRateData(BaseModel):
-    """Interest rate result."""
-    interest_rate: float
-    state: str
-    loan_type: str
-    down_payment: float
 
 
 class PropertyTaxData(BaseModel):
@@ -168,9 +164,9 @@ class PropertyInfoData(BaseModel):
     lot_size: Optional[float] = None
 
     # Common fields
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
-    square_footage: Optional[int] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
+    sqft: Optional[int] = None
 
     # Multi-family unit breakdown
     total_units: Optional[int] = None
@@ -186,6 +182,8 @@ class SalesDataEntry(BaseModel):
     sale_date: Optional[str] = None
     sale_price: Optional[Union[str, float]] = None
     sqft: Optional[Union[str, int]] = None
+    beds: Optional[Union[str, int]] = None
+    baths: Optional[Union[str, float]] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     price_per_sqft: Optional[float] = None  # Calculated field for filtered output
@@ -202,12 +200,11 @@ class ApartmentCompEntry(BaseModel):
     """Individual apartment comp entry."""
     address: str
     rent: Optional[float] = None
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
     sqft: Optional[int] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
-    rent_per_sqft: Optional[float] = None  # Calculated field for filtered output
 
 
 class ApartmentCompData(BaseModel):
@@ -231,6 +228,7 @@ class FiveNumberSummaryResult(BaseModel):
     median: Optional[float] = None
     q3: Optional[float] = None
     max: Optional[float] = None
+    value: Optional[float] = None  # Only populated when result_type == "single"
     count: int
     result_type: str  # "full", "range", or "single"
     field_name: Optional[str] = None
@@ -252,9 +250,9 @@ class InputPropertyInfo(BaseModel):
 
     # Property details
     property_type: Optional[str] = None
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[Union[int, float]] = None
-    square_footage: Optional[int] = None
+    beds: Optional[int] = None
+    baths: Optional[Union[int, float]] = None
+    sqft: Optional[int] = None
     year_built: Optional[int] = None
     lot_size: Optional[float] = None
 
@@ -266,22 +264,23 @@ class InputPropertyInfo(BaseModel):
     annual_taxes: Optional[float] = None
     tax_year: Optional[int] = None
 
-    # Interest rate
-    interest_rate: Optional[float] = None
-
 
 class FilteredSalesData(BaseModel):
-    """Filtered sales data within polygon."""
+    """Filtered sales data within polygon or by distance fallback."""
     filtered_addresses: List[SalesDataEntry]
     filtered_count: int
     original_count: int
     price_summary: Optional[FiveNumberSummaryResult] = None
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
+    filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
+    # Tiered filtering tracking
+    boundary_included: bool = False  # True if boundary addresses were added due to insufficient inside-only count
+    filtering_stage: Optional[str] = None  # "inside_only" | "with_boundary" | "expanded_tier1_2" | "expanded_tier3"
 
 
 class FilteredApartmentData(BaseModel):
-    """Filtered apartment comps within polygon for a unit type."""
+    """Filtered apartment comps within polygon or by distance fallback."""
     unit_key: str  # e.g., "2bd_1ba"
     filtered_addresses: List[ApartmentCompEntry]
     filtered_count: int
@@ -289,6 +288,10 @@ class FilteredApartmentData(BaseModel):
     rent_summary: Optional[FiveNumberSummaryResult] = None
     is_expanded: bool = False
     expansion_metadata: Optional[PolygonExpansionMetadata] = None
+    filtering_method: str = "polygon"  # "polygon" | "distance_fallback"
+    # Tiered filtering tracking
+    boundary_included: bool = False  # True if boundary addresses were added due to insufficient inside-only count
+    filtering_stage: Optional[str] = None  # "inside_only" | "with_boundary" | "expanded_tier1_2" | "expanded_tier3"
 
 
 class FormattedOutput(BaseModel):
@@ -310,10 +313,7 @@ class WorkflowData(BaseModel):
     # Step 1 - Validation
     geocoding: Optional[GeocodingData] = None
 
-    # Workflow 1 - Interest Rate
-    interest_rate: Optional[InterestRateData] = None
-
-    # Workflow 2 - Boundary Analysis
+    # Workflow 1 - Boundary Analysis
     bounding_boxes: Optional[BoundingBoxData] = None
     boundary_polygon: Optional[PolygonData] = None
 
