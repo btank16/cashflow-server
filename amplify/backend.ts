@@ -1,6 +1,7 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
+import { storage } from './storage/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
@@ -11,8 +12,10 @@ import { listBetaUsers } from './functions/listBetaUsers/resource';
 import { interestRateLookup } from './functions/interestRateLookup/resource';
 import { geminiArticles } from './functions/geminiArticles/resource';
 import { offerLetter } from './functions/offerLetter/resource';
+import { uploadPDF } from './functions/uploadPDF/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 
 /**
  * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
@@ -20,6 +23,7 @@ import { Function } from 'aws-cdk-lib/aws-lambda';
 const backend = defineBackend({
   auth,
   data,
+  storage,
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
@@ -29,7 +33,8 @@ const backend = defineBackend({
   listBetaUsers,
   interestRateLookup,
   geminiArticles,
-  offerLetter
+  offerLetter,
+  uploadPDF,
 });
 
 // =============================================================================
@@ -134,3 +139,24 @@ listBetaUsersLambda.addToRolePolicy(
     resources: [cognitoUserPoolArn],
   })
 );
+
+// =============================================================================
+// S3 Storage Configuration for PDF Upload
+// =============================================================================
+const bucket = backend.storage.resources.bucket;
+const uploadPDFLambda = backend.uploadPDF.resources.lambda as Function;
+
+// Add lifecycle rule to delete objects after 1 day (minimum allowed by S3)
+const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
+cfnBucket.lifecycleConfiguration = {
+  rules: [{
+    id: 'DeleteTempPDFs',
+    status: 'Enabled',
+    expirationInDays: 1,
+    prefix: 'pdfs/',
+  }],
+};
+
+// Grant uploadPDF Lambda access to S3 and set environment variable
+uploadPDFLambda.addEnvironment('BUCKET_NAME', bucket.bucketName);
+bucket.grantReadWrite(uploadPDFLambda);
