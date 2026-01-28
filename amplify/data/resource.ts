@@ -9,7 +9,6 @@ import { listBetaUsers } from '../functions/listBetaUsers/resource';
 import { geminiArticles } from '../functions/geminiArticles/resource';
 import { offerLetter } from '../functions/offerLetter/resource';
 import { interestRateLookup } from '../functions/interestRateLookup/resource';
-import { uploadPDF } from '../functions/uploadPDF/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -200,27 +199,6 @@ const schema = a.schema({
     }))
     .authorization(allow => [allow.authenticated()])
     .handler(a.handler.function(interestRateLookup)),
-
-  // =============================================================================
-  // PDF Upload to S3
-  // =============================================================================
-
-  // Upload PDF to S3 and get presigned URL for download
-  uploadPDF: a
-    .mutation()
-    .arguments({
-      base64Data: a.string().required(),  // Base64-encoded PDF data
-      filename: a.string().required(),    // Filename for the PDF
-      userId: a.string()                  // Optional user ID for organizing files
-    })
-    .returns(a.customType({
-      success: a.boolean().required(),
-      url: a.string(),                    // Presigned URL for download (valid 1 hour)
-      expiresIn: a.integer(),             // Expiry time in seconds
-      error: a.string()
-    }))
-    .authorization(allow => [allow.authenticated()])
-    .handler(a.handler.function(uploadPDF)),
 
   // =============================================================================
   // Data Models
