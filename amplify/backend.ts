@@ -1,7 +1,7 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
-import { storage } from './storage/resource';
+// import { storage } from './storage/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
@@ -14,7 +14,7 @@ import { geminiArticles } from './functions/geminiArticles/resource';
 import { offerLetter } from './functions/offerLetter/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
-import * as s3 from 'aws-cdk-lib/aws-s3';
+// import * as s3 from 'aws-cdk-lib/aws-s3';
 
 /**
  * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
@@ -22,7 +22,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 const backend = defineBackend({
   auth,
   data,
-  storage,
+  // storage,
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
@@ -141,15 +141,15 @@ listBetaUsersLambda.addToRolePolicy(
 // =============================================================================
 // S3 Storage Configuration
 // =============================================================================
-const bucket = backend.storage.resources.bucket;
+// const bucket = backend.storage.resources.bucket;
 
-// Add lifecycle rule to delete objects after 1 day (minimum allowed by S3)
-const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
-cfnBucket.lifecycleConfiguration = {
-  rules: [{
-    id: 'DeleteTempPDFs',
-    status: 'Enabled',
-    expirationInDays: 1,
-    prefix: 'pdfs/',
-  }],
-};
+// // Add lifecycle rule to delete objects after 1 day (minimum allowed by S3)
+// const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
+// cfnBucket.lifecycleConfiguration = {
+//   rules: [{
+//     id: 'DeleteTempPDFs',
+//     status: 'Enabled',
+//     expirationInDays: 1,
+//     prefix: 'pdfs/',
+//   }],
+// };
