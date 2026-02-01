@@ -164,11 +164,23 @@ interface LambdaEvent {
 
 const OUTPUT_SCHEMA = {
   type: Type.OBJECT,
-  required: ['letter'],
+  required: ['introduction', 'priceJustification', 'propertyAnalysis', 'closing'],
   properties: {
-    letter: {
+    introduction: {
       type: Type.STRING,
-      description: 'The complete offer letter as plain text, formatted for email sharing'
+      description: 'Brief introduction expressing interest in the property (2-3 sentences)'
+    },
+    priceJustification: {
+      type: Type.STRING,
+      description: 'Explanation of the offer price supported by comparable sales data'
+    },
+    propertyAnalysis: {
+      type: Type.STRING,
+      description: 'Analysis of the property including rental income projections, rehab considerations, or investment metrics as applicable to the receiver'
+    },
+    closing: {
+      type: Type.STRING,
+      description: 'Professional closing with next steps and invitation to discuss further'
     }
   }
 };
@@ -275,11 +287,6 @@ const buildSystemPrompt = (offerType: OfferType, receiver: ReceiverType, senderI
     senderDescription = `${fullName}, a real estate investor`;
   }
 
-  // Build signature instruction if sender name is provided
-  const signatureInstruction = senderInfo?.firstName
-    ? `\n- Sign the letter with the sender's name: ${[senderInfo.firstName, senderInfo.lastName].filter(Boolean).join(' ')}`
-    : '';
-
   return `You are a professional real estate investor drafting an offer letter to purchase a rental property.
 
 CONTEXT:
@@ -294,18 +301,17 @@ CONTENT FOCUS:
 ${guidance.focus}
 
 FORMAT REQUIREMENTS:
-- Output as plain text suitable for sharing via email or text message
-- Use clear paragraph breaks for readability
-- Include a professional greeting and closing
-- Do NOT use markdown formatting (no **, ##, etc.)
-- Keep the letter concise but comprehensive (aim for 250-400 words)
-- Only include information that is provided in the data - do not make up or assume any values${signatureInstruction}
+- Output as JSON with four distinct sections: introduction, priceJustification, propertyAnalysis, closing
+- Each section should be 2-4 sentences
+- Write in plain text suitable for email (no markdown formatting)
+- Do NOT include a greeting or signature - these will be added separately
+- Only include information that is provided in the data - do not make up values
 
 CONTENT GUIDELINES:
-- Start with a brief introduction expressing interest in the property
-- Reference the offer price and key supporting data points
-- Only mention data fields that are actually provided (skip sections with no data)
-- Close with next steps and contact invitation`;
+- introduction: Express interest in the property and briefly state your intent
+- priceJustification: Reference the offer price and support it with comparable sales data
+- propertyAnalysis: Include rental income projections, rehab considerations, or investment metrics as relevant to the receiver
+- closing: Provide professional next steps and invitation to discuss further`;
 };
 
 const buildRentalUserPrompt = (inputData: RentalInputData, config: ReceiverDataConfig): string => {
@@ -502,11 +508,19 @@ export const handler = async (event: LambdaEvent): Promise<OfferLetterResponse> 
 
     const parsed = JSON.parse(response.text);
 
+    // Combine sections with proper spacing
+    const letter = [
+      parsed.introduction,
+      parsed.priceJustification,
+      parsed.propertyAnalysis,
+      parsed.closing
+    ].join('\n\n');
+
     console.log('Offer letter generated successfully');
 
     return {
       success: true,
-      letter: parsed.letter
+      letter
     };
   } catch (error) {
     console.error('Gemini API error:', error);
