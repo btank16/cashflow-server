@@ -125,3 +125,28 @@ export function tierHasFeature(tier: TierName, feature: string): boolean {
 export function getTierConfig(tier: TierName): TierConfig {
   return TIERS[tier];
 }
+
+/**
+ * Tier ranking for upgrade/downgrade detection
+ */
+const TIER_RANK: Record<TierName, number> = {
+  basic: 0,
+  beta: 1,
+  premium: 2,
+  platinum: 3,
+  admin: 4,
+};
+
+/**
+ * Check if a tier change is an upgrade (higher tier)
+ */
+export function isUpgrade(fromTier: TierName, toTier: TierName): boolean {
+  return TIER_RANK[toTier] > TIER_RANK[fromTier];
+}
+
+/**
+ * Check if a tier change is a downgrade (lower tier)
+ */
+export function isDowngrade(fromTier: TierName, toTier: TierName): boolean {
+  return TIER_RANK[toTier] < TIER_RANK[fromTier];
+}

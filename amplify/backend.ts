@@ -12,9 +12,12 @@ import { listBetaUsers } from './functions/listBetaUsers/resource';
 import { interestRateLookup } from './functions/interestRateLookup/resource';
 import { geminiArticles } from './functions/geminiArticles/resource';
 import { offerLetter } from './functions/offerLetter/resource';
+import { syncSubscription } from './functions/syncSubscription/resource';
+import { revenueCatWebhook } from './functions/revenueCatWebhook/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 /**
  * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
@@ -33,6 +36,8 @@ const backend = defineBackend({
   interestRateLookup,
   geminiArticles,
   offerLetter,
+  syncSubscription,
+  revenueCatWebhook,
 });
 
 // =============================================================================
@@ -93,6 +98,7 @@ rateLimitCounterTable.grantReadWriteData(newRentalWorkflowLambda);
 
 // =============================================================================
 // getEntitlements Configuration
+// Note: SUBSCRIPTION_TABLE_NAME is added in RevenueCat section below
 // =============================================================================
 getEntitlementsLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
 usageRecordTable.grantReadData(getEntitlementsLambda);
@@ -153,3 +159,72 @@ cfnBucket.lifecycleConfiguration = {
     prefix: 'pdfs/',
   }],
 };
+
+// =============================================================================
+// RevenueCat Subscription Functions Configuration
+// =============================================================================
+const userSubscriptionTable = backend.data.resources.tables['UserSubscription'];
+const userSubscriptionTableName = userSubscriptionTable.tableName;
+
+// Add subscription table access to getEntitlements
+getEntitlementsLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+userSubscriptionTable.grantReadData(getEntitlementsLambda);
+
+const syncSubscriptionLambda = backend.syncSubscription.resources.lambda as Function;
+const revenueCatWebhookLambda = backend.revenueCatWebhook.resources.lambda as Function;
+
+// syncSubscription - needs Cognito, DynamoDB (subscription + usage) access
+syncSubscriptionLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+syncSubscriptionLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+syncSubscriptionLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
+userSubscriptionTable.grantReadWriteData(syncSubscriptionLambda);
+usageRecordTable.grantReadWriteData(syncSubscriptionLambda);
+syncSubscriptionLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:AdminListGroupsForUser',
+    ],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// revenueCatWebhook - needs Cognito, DynamoDB (subscription + usage) access
+revenueCatWebhookLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+revenueCatWebhookLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+revenueCatWebhookLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
+userSubscriptionTable.grantReadWriteData(revenueCatWebhookLambda);
+usageRecordTable.grantReadWriteData(revenueCatWebhookLambda);
+revenueCatWebhookLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:AdminListGroupsForUser',
+      'cognito-idp:ListUsers',
+    ],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// Create API Gateway for RevenueCat webhook
+// This exposes a public HTTPS endpoint for RevenueCat to call
+const webhookApi = new apigateway.LambdaRestApi(
+  backend.revenueCatWebhook.resources.lambda.stack,
+  'RevenueCatWebhookApi',
+  {
+    handler: revenueCatWebhookLambda,
+    proxy: true,
+    deployOptions: {
+      stageName: 'prod',
+    },
+  }
+);
+
+// Output the webhook URL for configuration in RevenueCat dashboard
+backend.addOutput({
+  custom: {
+    revenueCatWebhookUrl: webhookApi.url,
+  },
+});

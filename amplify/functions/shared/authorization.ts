@@ -2,10 +2,42 @@
  * Authorization utilities for Cashflow Beta Access System
  *
  * Handles entitlement resolution and access control checks.
- * Designed for easy future Stripe integration.
+ * Supports RevenueCat subscription integration with Cognito group fallback.
  */
 
 import { TIERS, TierName, getTierFromCognitoGroups, tierHasFeature, FEATURES, COGNITO_GROUPS } from './tiers';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+
+// Initialize DynamoDB client (lazy initialization)
+let docClient: DynamoDBDocumentClient | null = null;
+
+function getDocClient(): DynamoDBDocumentClient {
+  if (!docClient) {
+    const dynamoClient = new DynamoDBClient({});
+    docClient = DynamoDBDocumentClient.from(dynamoClient);
+  }
+  return docClient;
+}
+
+/**
+ * UserSubscription record from DynamoDB
+ */
+export interface UserSubscriptionRecord {
+  userId: string;
+  revenueCatAppUserId?: string;
+  productId?: string;
+  platform?: 'ios' | 'android';
+  tier?: TierName;
+  status?: 'active' | 'expired' | 'in_grace_period' | 'paused' | 'canceled' | 'trialing' | 'legacy';
+  purchaseDate?: string;
+  expiresDate?: string;
+  lastEventId?: string;
+  lastSyncedAt?: string;
+  syncSource?: 'webhook' | 'client' | 'admin';
+  migratedFromCognitoGroup?: string;
+  migrationDate?: string;
+}
 
 /**
  * Cognito identity structure from AppSync Lambda events
@@ -67,29 +99,97 @@ export function extractCognitoGroups(identity: LambdaEventIdentity): string[] {
 }
 
 /**
- * Get user entitlements from Cognito groups.
- *
- * Future: This function will be modified to check UserSubscription table
- * first for active Stripe subscriptions before falling back to Cognito groups.
+ * Get user subscription from DynamoDB UserSubscription table.
+ * Returns null if no subscription found or table not configured.
+ */
+export async function getActiveSubscription(userId: string): Promise<UserSubscriptionRecord | null> {
+  const tableName = process.env.SUBSCRIPTION_TABLE_NAME;
+  if (!tableName) {
+    // Table not configured, fall back to Cognito groups
+    return null;
+  }
+
+  try {
+    const result = await getDocClient().send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { userId },
+      })
+    );
+
+    if (!result.Item) {
+      return null;
+    }
+
+    const subscription = result.Item as UserSubscriptionRecord;
+
+    // Check if subscription is active (active, in_grace_period, or canceled but not expired)
+    const activeStatuses = ['active', 'in_grace_period', 'canceled', 'trialing'];
+    if (!subscription.status || !activeStatuses.includes(subscription.status)) {
+      return null;
+    }
+
+    // Check if subscription has expired
+    if (subscription.expiresDate) {
+      const expiresDate = new Date(subscription.expiresDate);
+      if (expiresDate < new Date()) {
+        return null;
+      }
+    }
+
+    return subscription;
+  } catch (error) {
+    console.error('Error fetching subscription:', error);
+    return null;
+  }
+}
+
+/**
+ * Get user entitlements from subscription table or Cognito groups.
+ * Checks UserSubscription table first for RevenueCat subscriptions,
+ * then falls back to Cognito groups for beta/admin users.
  */
 export function getUserEntitlements(cognitoGroups: string[]): UserEntitlements {
-  // ---------------------------------------------------------
-  // FUTURE STRIPE INTEGRATION: Add subscription table check here
-  // ---------------------------------------------------------
-  // const subscription = await getActiveSubscription(userId);
-  // if (subscription && subscription.status === 'active') {
-  //   return {
-  //     tier: subscription.tier,
-  //     displayName: TIERS[subscription.tier].displayName,
-  //     monthlyLimit: subscription.monthlyLimit,
-  //     features: subscription.features,
-  //     source: 'subscription',
-  //     isAdmin: cognitoGroups.includes('admin'),
-  //   };
-  // }
-  // ---------------------------------------------------------
+  // Synchronous version - derive entitlements from Cognito groups
+  // For async subscription check, use getUserEntitlementsAsync
+  const tier = getTierFromCognitoGroups(cognitoGroups);
+  const tierConfig = TIERS[tier];
 
-  // MVP: Derive entitlements from Cognito groups
+  return {
+    tier,
+    displayName: tierConfig.displayName,
+    monthlyLimit: tierConfig.monthlyLimit,
+    features: tierConfig.features,
+    source: 'cognito-group',
+    isAdmin: cognitoGroups.includes(COGNITO_GROUPS.ADMIN),
+  };
+}
+
+/**
+ * Get user entitlements with async subscription table check.
+ * Checks UserSubscription table first for RevenueCat subscriptions,
+ * then falls back to Cognito groups for beta/admin users.
+ */
+export async function getUserEntitlementsAsync(
+  userId: string,
+  cognitoGroups: string[]
+): Promise<UserEntitlements> {
+  // Check UserSubscription table first for active RevenueCat subscription
+  const subscription = await getActiveSubscription(userId);
+
+  if (subscription && subscription.tier) {
+    const tierConfig = TIERS[subscription.tier];
+    return {
+      tier: subscription.tier,
+      displayName: tierConfig.displayName,
+      monthlyLimit: tierConfig.monthlyLimit,
+      features: tierConfig.features,
+      source: 'subscription',
+      isAdmin: cognitoGroups.includes(COGNITO_GROUPS.ADMIN),
+    };
+  }
+
+  // Fall back to Cognito groups (for beta/admin users or users without subscription)
   const tier = getTierFromCognitoGroups(cognitoGroups);
   const tierConfig = TIERS[tier];
 

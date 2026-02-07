@@ -9,6 +9,7 @@ import { listBetaUsers } from '../functions/listBetaUsers/resource';
 import { geminiArticles } from '../functions/geminiArticles/resource';
 import { offerLetter } from '../functions/offerLetter/resource';
 import { interestRateLookup } from '../functions/interestRateLookup/resource';
+import { syncSubscription } from '../functions/syncSubscription/resource';
 
 // Note: Lambda functions (startRentalWorkflow, getEntitlements) access UsageRecord
 // and UserSubscription tables directly via DynamoDB SDK. Permissions are granted
@@ -201,6 +202,27 @@ const schema = a.schema({
     .handler(a.handler.function(interestRateLookup)),
 
   // =============================================================================
+  // Subscription Management (RevenueCat)
+  // =============================================================================
+
+  // Sync subscription status from RevenueCat
+  // Called after purchases or to verify subscription state
+  syncSubscription: a
+    .mutation()
+    .arguments({
+      revenueCatAppUserId: a.string().required()
+    })
+    .returns(a.customType({
+      success: a.boolean().required(),
+      tier: a.string(),
+      status: a.string(),
+      expiresDate: a.string(),
+      error: a.string()
+    }))
+    .authorization(allow => [allow.authenticated()])
+    .handler(a.handler.function(syncSubscription)),
+
+  // =============================================================================
   // Data Models
   // =============================================================================
 
@@ -249,24 +271,26 @@ const schema = a.schema({
       allow.authenticated().to(['read'])    // Lambda uses IAM, not user auth
     ]),
 
-  // User subscription data (for future Stripe integration)
+  // User subscription data (RevenueCat integration)
   // Note: Lambda functions access this via direct DynamoDB SDK calls
   // Permissions granted in backend.ts
   UserSubscription: a
     .model({
       userId: a.id().required(),
-      // Stripe fields - null until integration
-      stripeCustomerId: a.string(),
-      stripeSubscriptionId: a.string(),
+      // RevenueCat fields
+      revenueCatAppUserId: a.string(),
+      productId: a.string(),  // e.g., 'investor_annual', 'mogul_monthly'
+      platform: a.enum(['ios', 'android']),
       // Subscription data
       tier: a.enum(['basic', 'beta', 'premium', 'platinum', 'admin']),
-      status: a.enum(['active', 'canceled', 'past_due', 'trialing', 'legacy']),
-      monthlyLimit: a.integer(),
-      features: a.string().array(),
-      // Billing cycle
-      cycleAnchorDay: a.integer(),  // Day of month (1-31) when cycle starts
-      currentPeriodStart: a.datetime(),
-      currentPeriodEnd: a.datetime(),
+      status: a.enum(['active', 'expired', 'in_grace_period', 'paused', 'canceled', 'trialing', 'legacy']),
+      // Billing dates
+      purchaseDate: a.datetime(),
+      expiresDate: a.datetime(),
+      // Sync tracking
+      lastEventId: a.string(),  // For webhook idempotency
+      lastSyncedAt: a.datetime(),
+      syncSource: a.enum(['webhook', 'client', 'admin']),
       // Migration tracking
       migratedFromCognitoGroup: a.string(),
       migrationDate: a.datetime()
