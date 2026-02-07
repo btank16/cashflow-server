@@ -5,6 +5,7 @@ export const syncSubscription = defineFunction({
   entry: './handler.ts',
   timeoutSeconds: 30,
   memoryMB: 128,
+  resourceGroupName: 'data',
   environment: {
     REVENUECAT_API_KEY: secret('RevenueCat')
   },
