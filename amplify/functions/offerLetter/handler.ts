@@ -286,7 +286,7 @@ interface BRRRRInvestmentMetrics {
   cashOnCash: number;
   maxEquity: number;
   equityReturnPerc: number;
-  totalCashDown: number;
+  totalInvestment: number;
 }
 
 interface RefinanceLoan {
