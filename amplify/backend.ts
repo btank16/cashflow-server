@@ -41,6 +41,21 @@ const backend = defineBackend({
 });
 
 // =============================================================================
+// DynamoDB TTL Configuration
+// =============================================================================
+const { cfnResources } = backend.data.resources;
+
+cfnResources.amplifyDynamoDbTables['RateLimitCounter'].timeToLiveAttribute = {
+  attributeName: 'ttl',
+  enabled: true,
+};
+
+cfnResources.amplifyDynamoDbTables['UsageRecord'].timeToLiveAttribute = {
+  attributeName: 'ttl',
+  enabled: true,
+};
+
+// =============================================================================
 // Table References
 // =============================================================================
 const workflowJobTable = backend.data.resources.tables['WorkflowJob'];
@@ -149,16 +164,20 @@ listBetaUsersLambda.addToRolePolicy(
 // =============================================================================
 const bucket = backend.storage.resources.bucket;
 
-// Add lifecycle rule to delete objects after 1 day (minimum allowed by S3)
+// Add lifecycle rule to delete objects after 1 day
 const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
-cfnBucket.lifecycleConfiguration = {
-  rules: [{
-    id: 'DeleteTempPDFs',
-    status: 'Enabled',
-    expirationInDays: 1,
-    prefix: 'pdfs/',
+cfnBucket.addPropertyOverride('LifecycleConfiguration', {
+  Rules: [{
+    Id: 'DeleteTempPDFs',
+    Status: 'Enabled',
+    ExpirationInDays: 1,
+    Prefix: 'pdfs/',
+    AbortIncompleteMultipartUpload: {
+      DaysAfterInitiation: 1,
+    },
+    ExpiredObjectDeleteMarker: true,
   }],
-};
+});
 
 // =============================================================================
 // RevenueCat Subscription Functions Configuration
