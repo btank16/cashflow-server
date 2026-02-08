@@ -4,7 +4,7 @@ export const revenueCatWebhook = defineFunction({
   name: 'revenuecat-webhook',
   entry: './handler.ts',
   timeoutSeconds: 30,
-  memoryMB: 256,
+  memoryMB: 128,
   resourceGroupName: 'data',
   environment: {
     REVENUECAT_API_KEY: secret('RevenueCat')

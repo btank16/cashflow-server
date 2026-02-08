@@ -5,7 +5,7 @@ export const getEntitlements = defineFunction({
   entry: './handler.ts',
   timeoutSeconds: 20,
   runtime: 22,
-  memoryMB: 256,
+  memoryMB: 128,
   resourceGroupName: 'data',
   architecture: 'arm64'
 });
