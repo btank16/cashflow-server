@@ -167,16 +167,22 @@ const bucket = backend.storage.resources.bucket;
 // Add lifecycle rule to delete objects after 1 day
 const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
 cfnBucket.addPropertyOverride('LifecycleConfiguration', {
-  Rules: [{
-    Id: 'DeleteTempPDFs',
-    Status: 'Enabled',
-    ExpirationInDays: 1,
-    Prefix: 'pdfs/',
-    AbortIncompleteMultipartUpload: {
-      DaysAfterInitiation: 1,
+  Rules: [
+    {
+      Id: 'DeleteTempPDFs',
+      Status: 'Enabled',
+      ExpirationInDays: 1,
+      Prefix: 'pdfs/',
     },
-    ExpiredObjectDeleteMarker: true,
-  }],
+    {
+      Id: 'CleanupIncompleteUploads',
+      Status: 'Enabled',
+      Prefix: 'pdfs/',
+      AbortIncompleteMultipartUpload: {
+        DaysAfterInitiation: 1,
+      },
+    },
+  ],
 });
 
 // =============================================================================
