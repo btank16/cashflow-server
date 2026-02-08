@@ -1,6 +1,7 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
+import { storage } from './storage/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
@@ -11,8 +12,12 @@ import { listBetaUsers } from './functions/listBetaUsers/resource';
 import { interestRateLookup } from './functions/interestRateLookup/resource';
 import { geminiArticles } from './functions/geminiArticles/resource';
 import { offerLetter } from './functions/offerLetter/resource';
+import { syncSubscription } from './functions/syncSubscription/resource';
+import { revenueCatWebhook } from './functions/revenueCatWebhook/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 /**
  * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
@@ -20,6 +25,7 @@ import { Function } from 'aws-cdk-lib/aws-lambda';
 const backend = defineBackend({
   auth,
   data,
+  storage,
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
@@ -29,8 +35,25 @@ const backend = defineBackend({
   listBetaUsers,
   interestRateLookup,
   geminiArticles,
-  offerLetter
+  offerLetter,
+  syncSubscription,
+  revenueCatWebhook,
 });
+
+// =============================================================================
+// DynamoDB TTL Configuration
+// =============================================================================
+const { cfnResources } = backend.data.resources;
+
+cfnResources.amplifyDynamoDbTables['RateLimitCounter'].timeToLiveAttribute = {
+  attributeName: 'ttl',
+  enabled: true,
+};
+
+cfnResources.amplifyDynamoDbTables['UsageRecord'].timeToLiveAttribute = {
+  attributeName: 'ttl',
+  enabled: true,
+};
 
 // =============================================================================
 // Table References
@@ -90,6 +113,7 @@ rateLimitCounterTable.grantReadWriteData(newRentalWorkflowLambda);
 
 // =============================================================================
 // getEntitlements Configuration
+// Note: SUBSCRIPTION_TABLE_NAME is added in RevenueCat section below
 // =============================================================================
 getEntitlementsLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
 usageRecordTable.grantReadData(getEntitlementsLambda);
@@ -134,3 +158,88 @@ listBetaUsersLambda.addToRolePolicy(
     resources: [cognitoUserPoolArn],
   })
 );
+
+// =============================================================================
+// S3 Storage Configuration
+// =============================================================================
+const bucket = backend.storage.resources.bucket;
+
+// Add lifecycle rule to delete objects after 1 day
+const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
+cfnBucket.addPropertyOverride('LifecycleConfiguration', {
+  Rules: [{
+    Id: 'DeleteTempPDFs',
+    Status: 'Enabled',
+    ExpirationInDays: 1,
+    Prefix: 'pdfs/',
+  }],
+});
+
+// =============================================================================
+// RevenueCat Subscription Functions Configuration
+// =============================================================================
+const userSubscriptionTable = backend.data.resources.tables['UserSubscription'];
+const userSubscriptionTableName = userSubscriptionTable.tableName;
+
+// Add subscription table access to getEntitlements
+getEntitlementsLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+userSubscriptionTable.grantReadData(getEntitlementsLambda);
+
+const syncSubscriptionLambda = backend.syncSubscription.resources.lambda as Function;
+const revenueCatWebhookLambda = backend.revenueCatWebhook.resources.lambda as Function;
+
+// syncSubscription - needs Cognito, DynamoDB (subscription + usage) access
+syncSubscriptionLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+syncSubscriptionLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+syncSubscriptionLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
+userSubscriptionTable.grantReadWriteData(syncSubscriptionLambda);
+usageRecordTable.grantReadWriteData(syncSubscriptionLambda);
+syncSubscriptionLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:AdminListGroupsForUser',
+    ],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// revenueCatWebhook - needs Cognito, DynamoDB (subscription + usage) access
+revenueCatWebhookLambda.addEnvironment('COGNITO_USER_POOL_ID', cognitoUserPoolId);
+revenueCatWebhookLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+revenueCatWebhookLambda.addEnvironment('USAGE_TABLE_NAME', usageRecordTableName);
+userSubscriptionTable.grantReadWriteData(revenueCatWebhookLambda);
+usageRecordTable.grantReadWriteData(revenueCatWebhookLambda);
+revenueCatWebhookLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: [
+      'cognito-idp:AdminAddUserToGroup',
+      'cognito-idp:AdminRemoveUserFromGroup',
+      'cognito-idp:AdminListGroupsForUser',
+      'cognito-idp:ListUsers',
+    ],
+    resources: [cognitoUserPoolArn],
+  })
+);
+
+// Create API Gateway for RevenueCat webhook
+// This exposes a public HTTPS endpoint for RevenueCat to call
+const webhookApi = new apigateway.LambdaRestApi(
+  backend.revenueCatWebhook.resources.lambda.stack,
+  'RevenueCatWebhookApi',
+  {
+    handler: revenueCatWebhookLambda,
+    proxy: true,
+    deployOptions: {
+      stageName: 'prod',
+    },
+  }
+);
+
+// Output the webhook URL for configuration in RevenueCat dashboard
+backend.addOutput({
+  custom: {
+    revenueCatWebhookUrl: webhookApi.url,
+  },
+});

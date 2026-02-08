@@ -6,7 +6,7 @@
  */
 
 import {
-  getUserEntitlements,
+  getUserEntitlementsAsync,
   extractCognitoGroups,
   extractUserId,
   checkResidentAIAccess,
@@ -55,8 +55,8 @@ export const handler = async (event: LambdaEvent): Promise<EntitlementsResponse>
 
   console.log(`Getting entitlements for user ${userId} in timezone ${timezone}`);
 
-  // Get entitlements from Cognito groups
-  const entitlements = getUserEntitlements(cognitoGroups);
+  // Get entitlements - checks UserSubscription table first, then falls back to Cognito groups
+  const entitlements = await getUserEntitlementsAsync(userId, cognitoGroups);
 
   // Get current usage
   const usage = await getUsageStatus(

@@ -100,12 +100,11 @@ class GeocodingData(BaseModel):
     """Geocoding result data."""
     lat: float
     lon: float
-    type: str  # e.g., "house"
-    osm_type: str
-    osm_id: int
+    type: str  # "house", "commercial", "highrise", "firm", or "unknown"
     display_name: str
     address: Dict[str, Any]
-    boundingbox: List[str]
+    # Google Address Validation metadata
+    google_metadata: Optional[Dict[str, Any]] = None
 
 
 class BoundingBoxData(BaseModel):

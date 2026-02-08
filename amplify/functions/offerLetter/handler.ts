@@ -78,6 +78,131 @@ const RENTAL_RECEIVER_CONFIG: Record<ReceiverType, ReceiverDataConfig> = {
   },
 };
 
+// Flip receiver data config
+interface FlipReceiverDataConfig {
+  includeRehabCost: boolean;
+  includeLoanInfo: boolean;
+  includeARV: boolean;
+  includeRehabTime: boolean;
+  includeTotalProfit: boolean;
+  includeROI: boolean;
+  includeCashROI: boolean;
+  includeTotalCashCost: boolean;
+}
+
+const FLIP_RECEIVER_CONFIG: Record<ReceiverType, FlipReceiverDataConfig> = {
+  homeowner: {
+    includeRehabCost: true,
+    includeLoanInfo: false,
+    includeARV: true,
+    includeRehabTime: false,
+    includeTotalProfit: false,
+    includeROI: false,
+    includeCashROI: false,
+    includeTotalCashCost: false,
+  },
+  lender: {
+    includeRehabCost: true,
+    includeLoanInfo: true,
+    includeARV: true,
+    includeRehabTime: true,
+    includeTotalProfit: false,
+    includeROI: false,
+    includeCashROI: false,
+    includeTotalCashCost: true,
+  },
+  realtor: {
+    includeRehabCost: true,
+    includeLoanInfo: true,
+    includeARV: true,
+    includeRehabTime: true,
+    includeTotalProfit: true,
+    includeROI: false,
+    includeCashROI: false,
+    includeTotalCashCost: false,
+  },
+  investor: {
+    includeRehabCost: true,
+    includeLoanInfo: true,
+    includeARV: true,
+    includeRehabTime: true,
+    includeTotalProfit: true,
+    includeROI: true,
+    includeCashROI: true,
+    includeTotalCashCost: true,
+  },
+};
+
+// BRRRR receiver data config
+interface BRRRRReceiverDataConfig {
+  includeRehabCost: boolean;
+  includeUnitRents: boolean;
+  includeRentComps: boolean;
+  includeLoanInfo: boolean;
+  includeRefinanceTerms: boolean;
+  includeARV: boolean;
+  includeRehabTime: boolean;
+  includeMaxEquity: boolean;
+  includeEquityReturn: boolean;
+  includeAnnualCashflow: boolean;
+  includeCashOnCash: boolean;
+}
+
+const BRRRR_RECEIVER_CONFIG: Record<ReceiverType, BRRRRReceiverDataConfig> = {
+  homeowner: {
+    includeRehabCost: true,
+    includeUnitRents: false,
+    includeRentComps: false,
+    includeLoanInfo: false,
+    includeRefinanceTerms: false,
+    includeARV: true,
+    includeRehabTime: false,
+    includeMaxEquity: false,
+    includeEquityReturn: false,
+    includeAnnualCashflow: false,
+    includeCashOnCash: false,
+  },
+  lender: {
+    includeRehabCost: true,
+    includeUnitRents: true,
+    includeRentComps: true,
+    includeLoanInfo: true,
+    includeRefinanceTerms: true,
+    includeARV: true,
+    includeRehabTime: true,
+    includeMaxEquity: true,
+    includeEquityReturn: false,
+    includeAnnualCashflow: false,
+    includeCashOnCash: false,
+  },
+  realtor: {
+    includeRehabCost: true,
+    includeUnitRents: true,
+    includeRentComps: true,
+    includeLoanInfo: true,
+    includeRefinanceTerms: false,
+    includeARV: true,
+    includeRehabTime: true,
+    includeMaxEquity: false,
+    includeEquityReturn: false,
+    includeAnnualCashflow: true,
+    includeCashOnCash: false,
+  },
+  investor: {
+    includeRehabCost: true,
+    includeUnitRents: true,
+    includeRentComps: true,
+    includeLoanInfo: true,
+    includeRefinanceTerms: true,
+    includeARV: true,
+    includeRehabTime: true,
+    includeMaxEquity: true,
+    includeEquityReturn: true,
+    includeAnnualCashflow: true,
+    includeCashOnCash: true,
+  },
+};
+
 interface TargetProperty {
   fullAddress: string;
   purchasePrice: number;
@@ -135,15 +260,66 @@ interface RentalInputData {
   metrics: InvestmentMetrics;
 }
 
+// Flip-specific metrics
+interface FlipInvestmentMetrics {
+  totalProfit: number;
+  PercROI: number;
+  CashROI: number;
+  totalCashDown: number;
+  totalCashCost: number;
+}
+
+interface FlipInputData {
+  targetProperty: TargetProperty;
+  loanInfo: LoanInfo;
+  rehabCost: RehabCost;
+  purchaseComps: PurchaseComp[];
+  arv: number;
+  rehabTime: number;
+  agentCommission: number;
+  metrics: FlipInvestmentMetrics;
+}
+
+// BRRRR-specific metrics
+interface BRRRRInvestmentMetrics {
+  annualCashflow: number;
+  cashOnCash: number;
+  maxEquity: number;
+  equityReturnPerc: number;
+  totalInvestment: number;
+}
+
+interface RefinanceLoan {
+  newInterestRate: number;
+  newLoanTerm: number;
+}
+
+interface BRRRRInputData {
+  targetProperty: TargetProperty;
+  loanInfo: LoanInfo;
+  rehabCost: RehabCost;
+  purchaseComps: PurchaseComp[];
+  rentComps: Record<string, RentComp[]>;
+  selectedUnitRents: SelectedUnitRent[];
+  totalMonthlyRent: number;
+  arv: number;
+  rehabTime: number;
+  refinanceLoan: RefinanceLoan;
+  metrics: BRRRRInvestmentMetrics;
+}
+
 interface SenderInfo {
   firstName?: string;
   lastName?: string;
 }
 
+// Union type for all possible input data types
+type OfferInputData = RentalInputData | FlipInputData | BRRRRInputData;
+
 interface OfferLetterArgs {
   offerType: OfferType;
   receiver: string;
-  inputData: RentalInputData;
+  inputData: OfferInputData;
   senderFirstName?: string;
   senderLastName?: string;
 }
@@ -164,11 +340,23 @@ interface LambdaEvent {
 
 const OUTPUT_SCHEMA = {
   type: Type.OBJECT,
-  required: ['letter'],
+  required: ['introduction', 'priceJustification', 'propertyAnalysis', 'closing'],
   properties: {
-    letter: {
+    introduction: {
       type: Type.STRING,
-      description: 'The complete offer letter as plain text, formatted for email sharing'
+      description: 'Brief introduction expressing interest in the property (2-3 sentences)'
+    },
+    priceJustification: {
+      type: Type.STRING,
+      description: 'Explanation of the offer price supported by comparable sales data'
+    },
+    propertyAnalysis: {
+      type: Type.STRING,
+      description: 'Analysis of the property including rental income projections, rehab considerations, or investment metrics as applicable to the receiver'
+    },
+    closing: {
+      type: Type.STRING,
+      description: 'Professional closing with next steps and invitation to discuss further'
     }
   }
 };
@@ -275,11 +463,6 @@ const buildSystemPrompt = (offerType: OfferType, receiver: ReceiverType, senderI
     senderDescription = `${fullName}, a real estate investor`;
   }
 
-  // Build signature instruction if sender name is provided
-  const signatureInstruction = senderInfo?.firstName
-    ? `\n- Sign the letter with the sender's name: ${[senderInfo.firstName, senderInfo.lastName].filter(Boolean).join(' ')}`
-    : '';
-
   return `You are a professional real estate investor drafting an offer letter to purchase a rental property.
 
 CONTEXT:
@@ -294,18 +477,17 @@ CONTENT FOCUS:
 ${guidance.focus}
 
 FORMAT REQUIREMENTS:
-- Output as plain text suitable for sharing via email or text message
-- Use clear paragraph breaks for readability
-- Include a professional greeting and closing
-- Do NOT use markdown formatting (no **, ##, etc.)
-- Keep the letter concise but comprehensive (aim for 250-400 words)
-- Only include information that is provided in the data - do not make up or assume any values${signatureInstruction}
+- Output as JSON with four distinct sections: introduction, priceJustification, propertyAnalysis, closing
+- Each section should be 2-4 sentences
+- Write in plain text suitable for email (no markdown formatting)
+- Do NOT include a greeting or signature - these will be added separately
+- Only include information that is provided in the data - do not make up values
 
 CONTENT GUIDELINES:
-- Start with a brief introduction expressing interest in the property
-- Reference the offer price and key supporting data points
-- Only mention data fields that are actually provided (skip sections with no data)
-- Close with next steps and contact invitation`;
+- introduction: Express interest in the property and briefly state your intent
+- priceJustification: Reference the offer price and support it with comparable sales data
+- propertyAnalysis: Include rental income projections, rehab considerations, or investment metrics as relevant to the receiver
+- closing: Provide professional next steps and invitation to discuss further`;
 };
 
 const buildRentalUserPrompt = (inputData: RentalInputData, config: ReceiverDataConfig): string => {
@@ -399,6 +581,186 @@ ${sections.join('\n\n')}
 Please write a compelling offer letter that incorporates the above data professionally.`;
 };
 
+const buildFlipUserPrompt = (inputData: FlipInputData, config: FlipReceiverDataConfig): string => {
+  const { targetProperty, loanInfo, rehabCost, purchaseComps, arv, rehabTime, metrics } = inputData;
+
+  const sections: string[] = [];
+
+  // Always include property details
+  sections.push(`PROPERTY DETAILS:
+Address: ${targetProperty.fullAddress}
+Offer Price: ${formatCurrency(targetProperty.purchasePrice)}
+Price Per Sqft: ${formatCurrency(targetProperty.pricePerSqft)}/sqft`);
+
+  // ARV (After Repair Value)
+  if (config.includeARV && hasData(arv)) {
+    sections.push(`AFTER REPAIR VALUE (ARV):
+Estimated ARV: ${formatCurrency(arv)}
+Potential Spread: ${formatCurrency(arv - targetProperty.purchasePrice)}`);
+  }
+
+  // Comparable sales
+  if (hasPurchaseComps(purchaseComps)) {
+    const purchaseCompsText = purchaseComps.map((comp, i) =>
+      `  ${i + 1}. ${comp.address}: ${formatCurrency(comp.purchasePrice)} (${formatCurrency(comp.pricePerSqft)}/sqft)`
+    ).join('\n');
+    sections.push(`COMPARABLE SALES:
+${purchaseCompsText}`);
+  }
+
+  // Financing terms
+  if (config.includeLoanInfo && hasData(loanInfo.interestRate)) {
+    sections.push(`FINANCING TERMS:
+Loan Term: ${loanInfo.loanTerm} years
+Down Payment: ${loanInfo.downPaymentPercent}%
+Interest Rate: ${formatPercent(loanInfo.interestRate)}`);
+  }
+
+  // Rehab costs and timeline
+  if (config.includeRehabCost && hasRehabCost(rehabCost)) {
+    const rehabItems = rehabCost.items.map(item => `${item.category} (${formatCurrency(item.cost)})`).join(', ');
+    let rehabSection = `REHAB PLAN:
+Estimated Rehab Cost: ${formatCurrency(rehabCost.total)}
+Items: ${rehabItems}`;
+    if (config.includeRehabTime && hasData(rehabTime)) {
+      rehabSection += `\nEstimated Timeline: ${rehabTime} months`;
+    }
+    sections.push(rehabSection);
+  }
+
+  // Investment metrics
+  const metricLines: string[] = [];
+
+  if (config.includeTotalProfit && hasData(metrics.totalProfit)) {
+    metricLines.push(`Net Profit: ${formatCurrency(metrics.totalProfit)}`);
+  }
+  if (config.includeROI && hasData(metrics.PercROI)) {
+    metricLines.push(`ROI: ${formatPercent(metrics.PercROI)}`);
+  }
+  if (config.includeCashROI && hasData(metrics.CashROI)) {
+    metricLines.push(`Cash-on-Cash ROI: ${formatPercent(metrics.CashROI)}`);
+  }
+  if (config.includeTotalCashCost && hasData(metrics.totalCashCost)) {
+    metricLines.push(`Total Cash Investment: ${formatCurrency(metrics.totalCashCost)}`);
+  }
+
+  if (metricLines.length > 0) {
+    sections.push(`INVESTMENT METRICS:
+${metricLines.join('\n')}`);
+  }
+
+  return `Generate an offer letter for this fix-and-flip property investment using ONLY the data provided below. Do not include any information that is not listed.
+
+${sections.join('\n\n')}
+
+Please write a compelling offer letter that incorporates the above data professionally, focusing on the profit potential and renovation opportunity.`;
+};
+
+const buildBRRRRUserPrompt = (inputData: BRRRRInputData, config: BRRRRReceiverDataConfig): string => {
+  const { targetProperty, loanInfo, rehabCost, purchaseComps, rentComps, selectedUnitRents, totalMonthlyRent, arv, rehabTime, refinanceLoan, metrics } = inputData;
+
+  const sections: string[] = [];
+
+  // Always include property details
+  sections.push(`PROPERTY DETAILS:
+Address: ${targetProperty.fullAddress}
+Offer Price: ${formatCurrency(targetProperty.purchasePrice)}
+Price Per Sqft: ${formatCurrency(targetProperty.pricePerSqft)}/sqft`);
+
+  // ARV (After Repair Value)
+  if (config.includeARV && hasData(arv)) {
+    sections.push(`AFTER REPAIR VALUE (ARV):
+Estimated ARV: ${formatCurrency(arv)}
+Potential Equity: ${formatCurrency(arv - targetProperty.purchasePrice)}`);
+  }
+
+  // Comparable sales
+  if (hasPurchaseComps(purchaseComps)) {
+    const purchaseCompsText = purchaseComps.map((comp, i) =>
+      `  ${i + 1}. ${comp.address}: ${formatCurrency(comp.purchasePrice)} (${formatCurrency(comp.pricePerSqft)}/sqft)`
+    ).join('\n');
+    sections.push(`COMPARABLE SALES:
+${purchaseCompsText}`);
+  }
+
+  // Initial financing terms
+  if (config.includeLoanInfo && hasData(loanInfo.interestRate)) {
+    sections.push(`INITIAL FINANCING:
+Loan Term: ${loanInfo.loanTerm} years
+Down Payment: ${loanInfo.downPaymentPercent}%
+Interest Rate: ${formatPercent(loanInfo.interestRate)}`);
+  }
+
+  // Refinance terms
+  if (config.includeRefinanceTerms && refinanceLoan) {
+    sections.push(`REFINANCE TERMS (Post-Rehab):
+New Interest Rate: ${formatPercent(refinanceLoan.newInterestRate)}
+New Loan Term: ${refinanceLoan.newLoanTerm} years`);
+  }
+
+  // Rehab costs and timeline
+  if (config.includeRehabCost && hasRehabCost(rehabCost)) {
+    const rehabItems = rehabCost.items.map(item => `${item.category} (${formatCurrency(item.cost)})`).join(', ');
+    let rehabSection = `REHAB PLAN:
+Estimated Rehab Cost: ${formatCurrency(rehabCost.total)}
+Items: ${rehabItems}`;
+    if (config.includeRehabTime && hasData(rehabTime)) {
+      rehabSection += `\nEstimated Timeline: ${rehabTime} months`;
+    }
+    sections.push(rehabSection);
+  }
+
+  // Rent comps
+  if (config.includeRentComps && hasRentComps(rentComps)) {
+    const rentCompsText = Object.entries(rentComps).map(([unitType, comps]) => {
+      const unitLabel = unitType.replace('bd_', 'bd/').replace('ba', 'ba');
+      const compsList = comps.map((comp, i) =>
+        `    ${i + 1}. ${comp.address}: ${formatCurrency(comp.rent)}/mo`
+      ).join('\n');
+      return `  ${unitLabel}:\n${compsList}`;
+    }).join('\n');
+    sections.push(`COMPARABLE RENTALS:
+${rentCompsText}`);
+  }
+
+  // Projected rental income
+  if (config.includeUnitRents && hasUnitRents(selectedUnitRents)) {
+    const projectedRentText = selectedUnitRents.map(unit =>
+      `  ${unit.unitLabel}: ${formatCurrency(unit.rent)}/mo`
+    ).join('\n');
+    sections.push(`PROJECTED RENTAL INCOME:
+${projectedRentText}
+Total Monthly Rent: ${formatCurrency(totalMonthlyRent)}`);
+  }
+
+  // Investment metrics
+  const metricLines: string[] = [];
+
+  if (config.includeMaxEquity && hasData(metrics.maxEquity)) {
+    metricLines.push(`Max Equity (Post-Refinance): ${formatCurrency(metrics.maxEquity)}`);
+  }
+  if (config.includeEquityReturn && hasData(metrics.equityReturnPerc)) {
+    metricLines.push(`Return on Equity: ${formatPercent(metrics.equityReturnPerc)}`);
+  }
+  if (config.includeAnnualCashflow && hasData(metrics.annualCashflow)) {
+    metricLines.push(`Annual Cash Flow (Post-Refinance): ${formatCurrency(metrics.annualCashflow)}`);
+  }
+  if (config.includeCashOnCash && hasData(metrics.cashOnCash)) {
+    metricLines.push(`Cash-on-Cash Return: ${formatPercent(metrics.cashOnCash)}`);
+  }
+
+  if (metricLines.length > 0) {
+    sections.push(`INVESTMENT METRICS:
+${metricLines.join('\n')}`);
+  }
+
+  return `Generate an offer letter for this BRRRR (Buy, Rehab, Rent, Refinance, Repeat) property investment using ONLY the data provided below. Do not include any information that is not listed.
+
+${sections.join('\n\n')}
+
+Please write a compelling offer letter that incorporates the above data professionally, emphasizing the equity building opportunity and long-term rental income potential.`;
+};
+
 // =============================================================================
 // Main Handler
 // =============================================================================
@@ -465,12 +827,18 @@ export const handler = async (event: LambdaEvent): Promise<OfferLetterResponse> 
         systemPrompt = buildSystemPrompt(offerType as OfferType, receiverType, senderInfo);
         userPrompt = buildRentalUserPrompt(inputData as RentalInputData, receiverConfig);
         break;
-      case 'flip':
-      case 'brrrr':
-        // Placeholder for future offer types - use rental prompts for now
+      case 'flip': {
+        const flipConfig = FLIP_RECEIVER_CONFIG[receiverType] || FLIP_RECEIVER_CONFIG.homeowner;
         systemPrompt = buildSystemPrompt(offerType as OfferType, receiverType, senderInfo);
-        userPrompt = buildRentalUserPrompt(inputData as RentalInputData, receiverConfig);
+        userPrompt = buildFlipUserPrompt(inputData as FlipInputData, flipConfig);
         break;
+      }
+      case 'brrrr': {
+        const brrrrConfig = BRRRR_RECEIVER_CONFIG[receiverType] || BRRRR_RECEIVER_CONFIG.homeowner;
+        systemPrompt = buildSystemPrompt(offerType as OfferType, receiverType, senderInfo);
+        userPrompt = buildBRRRRUserPrompt(inputData as BRRRRInputData, brrrrConfig);
+        break;
+      }
       default:
         return {
           success: false,
@@ -502,11 +870,19 @@ export const handler = async (event: LambdaEvent): Promise<OfferLetterResponse> 
 
     const parsed = JSON.parse(response.text);
 
+    // Combine sections with proper spacing
+    const letter = [
+      parsed.introduction,
+      parsed.priceJustification,
+      parsed.propertyAnalysis,
+      parsed.closing
+    ].join('\n\n');
+
     console.log('Offer letter generated successfully');
 
     return {
       success: true,
-      letter: parsed.letter
+      letter
     };
   } catch (error) {
     console.error('Gemini API error:', error);

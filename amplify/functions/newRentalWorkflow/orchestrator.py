@@ -189,7 +189,7 @@ class NewRentalWorkflowOrchestrator:
 
             address_type = result.data.get('type', '')
             if address_type != 'house':
-                self.state.fail_step(WorkflowStep.VALIDATION, f"Address type '{address_type}' is not 'house'",
+                self.state.fail_step(WorkflowStep.VALIDATION, f"Address is not residential (type='{address_type}')",
                                      ErrorCode.VALIDATION_ERROR, 1, step_start)
                 return None
 
@@ -208,15 +208,13 @@ class NewRentalWorkflowOrchestrator:
             # Store geocoding data
             self.state.data.geocoding = GeocodingData(
                 lat=lat, lon=lon, type=address_type,
-                osm_type=result.data.get('osm_type', ''),
-                osm_id=int(result.data.get('osm_id', 0)) if result.data.get('osm_id') else 0,
                 display_name=result.data.get('display_name', ''),
                 address=result.data.get('address', {}),
-                boundingbox=result.data.get('boundingbox', [])
+                google_metadata=result.data.get('_google_metadata'),
             )
 
             self.state.complete_step(WorkflowStep.VALIDATION, {'lat': lat, 'lon': lon, 'type': address_type},
-                                     'nominatim', 1, step_start)
+                                     'google_address_validation', 1, step_start)
             self._notify_step_complete('validation')
             return {'lat': lat, 'lon': lon}
 

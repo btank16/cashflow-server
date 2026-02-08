@@ -6,7 +6,7 @@ The Powertools layer provides built-in caching, decryption, and batch retrieval.
 
 import os
 import logging
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 from aws_lambda_powertools.utilities import parameters
 
@@ -102,3 +102,28 @@ def get_all_api_clients_from_env(
 
     logger.info('Successfully initialized all API clients from SSM parameters')
     return clients
+
+
+_google_maps_api_key: Optional[str] = None
+
+
+def get_google_maps_api_key(env_var: str = 'GOOGLE_MAPS_PARAM_NAME') -> str:
+    """Retrieve Google Maps API key from SSM Parameter Store with caching."""
+    global _google_maps_api_key
+    if _google_maps_api_key:
+        return _google_maps_api_key
+
+    param_name = os.environ.get(env_var)
+    if not param_name:
+        raise ValueError(f'Missing required environment variable: {env_var}')
+
+    params = parameters.get_parameters_by_name(
+        parameters={param_name: {'decrypt': True}},
+        raise_on_error=True
+    )
+    key = params.get(param_name)
+    if not key:
+        raise ValueError('Failed to retrieve Google Maps API key from SSM')
+
+    _google_maps_api_key = key
+    return key
