@@ -1,7 +1,7 @@
 import { defineBackend } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
 import { data } from './data/resource';
-import { storage } from './storage/resource';
+// import { storage } from './storage/resource';
 import { newRentalWorkflow } from './functions/newRentalWorkflow/resource_python';
 import { startRentalWorkflow } from './functions/startRentalWorkflow/resource';
 import { getRentalWorkflowStatus } from './functions/getRentalWorkflowStatus/resource';
@@ -16,7 +16,7 @@ import { syncSubscription } from './functions/syncSubscription/resource';
 import { revenueCatWebhook } from './functions/revenueCatWebhook/resource';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Function } from 'aws-cdk-lib/aws-lambda';
-import * as s3 from 'aws-cdk-lib/aws-s3';
+// import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 
 /**
@@ -25,7 +25,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 const backend = defineBackend({
   auth,
   data,
-  storage,
+  // storage,
   newRentalWorkflow,
   startRentalWorkflow,
   getRentalWorkflowStatus,
@@ -162,18 +162,18 @@ listBetaUsersLambda.addToRolePolicy(
 // =============================================================================
 // S3 Storage Configuration
 // =============================================================================
-const bucket = backend.storage.resources.bucket;
+// const bucket = backend.storage.resources.bucket;
 
-// Add lifecycle rule to delete objects after 1 day
-const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
-cfnBucket.addPropertyOverride('LifecycleConfiguration', {
-  Rules: [{
-    Id: 'DeleteTempPDFs',
-    Status: 'Enabled',
-    ExpirationInDays: 1,
-    Prefix: 'pdfs/',
-  }],
-});
+// // Add lifecycle rule to delete objects after 1 day
+// const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
+// cfnBucket.addPropertyOverride('LifecycleConfiguration', {
+//   Rules: [{
+//     Id: 'DeleteTempPDFs',
+//     Status: 'Enabled',
+//     ExpirationInDays: 1,
+//     Prefix: 'pdfs/',
+//   }],
+// });
 
 // =============================================================================
 // RevenueCat Subscription Functions Configuration
