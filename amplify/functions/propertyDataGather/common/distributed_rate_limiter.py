@@ -10,6 +10,7 @@ Uses a sliding window counter algorithm with atomic DynamoDB updates.
 import os
 import time
 import logging
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -141,19 +142,21 @@ class DistributedRateLimiter:
             return 1
 
         try:
+            now = datetime.now(timezone.utc).isoformat()
             response = self._table.update_item(
                 Key={
                     'service': service,
                     'window': window
                 },
-                UpdateExpression='SET request_count = if_not_exists(request_count, :zero) + :inc, #ttl = :ttl',
+                UpdateExpression='SET request_count = if_not_exists(request_count, :zero) + :inc, #ttl = :ttl, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
                 ExpressionAttributeNames={
                     '#ttl': 'ttl'
                 },
                 ExpressionAttributeValues={
                     ':inc': 1,
                     ':zero': 0,
-                    ':ttl': ttl
+                    ':ttl': ttl,
+                    ':now': now
                 },
                 ReturnValues='ALL_NEW'
             )

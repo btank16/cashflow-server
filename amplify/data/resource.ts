@@ -248,7 +248,10 @@ const schema = a.schema({
       periodFunction: a.string().required(),  // 'billing#YYYY-MM-DD#timezone#functionName' or 'anchor#timezone#functionName'
       count: a.integer().default(0),
       tier: a.string(),  // Snapshot of tier at usage time
-      ttl: a.integer()   // TTL for automatic DynamoDB cleanup
+      ttl: a.integer(),  // TTL for automatic DynamoDB cleanup
+      // Explicit timestamps required for models with custom identifiers
+      createdAt: a.datetime(),
+      updatedAt: a.datetime()
     })
     .identifier(['userId', 'periodFunction'])
     .authorization(allow => [
@@ -264,7 +267,10 @@ const schema = a.schema({
       service: a.string().required(),       // Service name: 'nominatim', 'rentcast', 'overpass'
       window: a.string().required(),        // Time window: unix timestamp (e.g., '1703001234')
       request_count: a.integer().default(0), // Number of requests in this window
-      ttl: a.integer()                      // TTL for automatic cleanup (60 seconds after window)
+      ttl: a.integer(),                     // TTL for automatic cleanup (60 seconds after window)
+      // Explicit timestamps required for models with custom identifiers
+      createdAt: a.datetime(),
+      updatedAt: a.datetime()
     })
     .identifier(['service', 'window'])
     .authorization(allow => [
@@ -293,7 +299,10 @@ const schema = a.schema({
       syncSource: a.enum(['webhook', 'client', 'admin']),
       // Migration tracking
       migratedFromCognitoGroup: a.string(),
-      migrationDate: a.datetime()
+      migrationDate: a.datetime(),
+      // Explicit timestamps required for models with custom identifiers
+      createdAt: a.datetime(),
+      updatedAt: a.datetime()
     })
     .identifier(['userId'])
     .authorization(allow => [

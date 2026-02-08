@@ -183,6 +183,21 @@ async function handleSubscriptionActivation(
 
   // Update UserSubscription table
   const now = new Date().toISOString();
+
+  // Fetch existing record to preserve createdAt
+  let existingCreatedAt: string | undefined;
+  try {
+    const existingRecord = await docClient.send(
+      new GetCommand({
+        TableName: subscriptionTableName,
+        Key: { userId: app_user_id },
+      })
+    );
+    existingCreatedAt = existingRecord.Item?.createdAt;
+  } catch (error) {
+    // Record may not exist yet, that's fine
+  }
+
   const subscriptionRecord: Record<string, unknown> = {
     userId: app_user_id,
     revenueCatAppUserId: app_user_id,
@@ -195,6 +210,8 @@ async function handleSubscriptionActivation(
     lastEventId: id,
     lastSyncedAt: now,
     syncSource: 'webhook',
+    createdAt: existingCreatedAt || now,
+    updatedAt: now,
   };
 
   // Check if migrating from beta
@@ -262,6 +279,21 @@ async function handleSubscriptionExpiration(
 
   // Update UserSubscription table
   const now = new Date().toISOString();
+
+  // Fetch existing record to preserve createdAt
+  let existingCreatedAt: string | undefined;
+  try {
+    const existingRecord = await docClient.send(
+      new GetCommand({
+        TableName: subscriptionTableName,
+        Key: { userId: app_user_id },
+      })
+    );
+    existingCreatedAt = existingRecord.Item?.createdAt;
+  } catch (error) {
+    // Record may not exist yet, that's fine
+  }
+
   await docClient.send(
     new PutCommand({
       TableName: subscriptionTableName,
@@ -274,6 +306,8 @@ async function handleSubscriptionExpiration(
         lastEventId: id,
         lastSyncedAt: now,
         syncSource: 'webhook',
+        createdAt: existingCreatedAt || now,
+        updatedAt: now,
       },
     })
   );
@@ -317,6 +351,8 @@ async function handleBillingIssue(
         lastEventId: id,
         lastSyncedAt: now,
         syncSource: 'webhook',
+        createdAt: currentRecord.Item?.createdAt || now,
+        updatedAt: now,
       },
     })
   );
@@ -358,6 +394,8 @@ async function handleCancellation(
         lastEventId: id,
         lastSyncedAt: now,
         syncSource: 'webhook',
+        createdAt: currentRecord.Item?.createdAt || now,
+        updatedAt: now,
       },
     })
   );

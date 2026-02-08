@@ -19,7 +19,7 @@ import {
   AdminListGroupsForUserCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import {
   fetchRevenueCatSubscriber,
   getSubscriptionStatus,
@@ -206,6 +206,21 @@ export const handler = async (event: LambdaEvent): Promise<SyncSubscriptionRespo
 
     // Update UserSubscription table
     const now = new Date().toISOString();
+
+    // Fetch existing record to preserve createdAt
+    let existingCreatedAt: string | undefined;
+    try {
+      const existingRecord = await docClient.send(
+        new GetCommand({
+          TableName: subscriptionTableName,
+          Key: { userId },
+        })
+      );
+      existingCreatedAt = existingRecord.Item?.createdAt;
+    } catch (error) {
+      // Record may not exist yet, that's fine
+    }
+
     const subscriptionRecord = {
       userId,
       revenueCatAppUserId,
@@ -220,6 +235,8 @@ export const handler = async (event: LambdaEvent): Promise<SyncSubscriptionRespo
       syncSource: 'client' as const,
       migratedFromCognitoGroup: currentGroups.includes(COGNITO_GROUPS.BETA) ? 'beta' : undefined,
       migrationDate: currentGroups.includes(COGNITO_GROUPS.BETA) ? now : undefined,
+      createdAt: existingCreatedAt || now,
+      updatedAt: now,
     };
 
     // Filter out undefined values for DynamoDB
