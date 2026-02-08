@@ -32,6 +32,7 @@ import { resetBillingAnchor } from '../shared/usage';
 
 interface SyncSubscriptionArgs {
   revenueCatAppUserId: string;
+  timezone?: string;  // Client's device timezone for billing anchor reset
 }
 
 interface SyncSubscriptionResponse {
@@ -61,7 +62,7 @@ const PAID_TIER_GROUPS = [
 export const handler = async (event: LambdaEvent): Promise<SyncSubscriptionResponse> => {
   console.log('syncSubscription invoked');
 
-  const { revenueCatAppUserId } = event.arguments;
+  const { revenueCatAppUserId, timezone: clientTimezone } = event.arguments;
   const userId = extractUserId(event.identity);
 
   if (!userId) {
@@ -150,8 +151,8 @@ export const handler = async (event: LambdaEvent): Promise<SyncSubscriptionRespo
 
     // Check if this is an upgrade - if so, reset billing anchor
     if (isUpgrade(currentTier, tier) && usageTableName) {
-      // Try to get timezone from RevenueCat subscriber attributes, fallback to UTC
-      const timezone = subscriberInfo.subscriber.subscriber_attributes?.['$timezone']?.value || 'UTC';
+      // Use client-passed timezone for consistency with usage queries, fallback to UTC
+      const timezone = clientTimezone || 'UTC';
       console.log(`Upgrade detected (${currentTier} → ${tier}), resetting billing anchor with timezone: ${timezone}`);
 
       try {

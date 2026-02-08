@@ -210,7 +210,8 @@ const schema = a.schema({
   syncSubscription: a
     .mutation()
     .arguments({
-      revenueCatAppUserId: a.string().required()
+      revenueCatAppUserId: a.string().required(),
+      timezone: a.string()  // Client's device timezone for billing anchor reset
     })
     .returns(a.customType({
       success: a.boolean().required(),
