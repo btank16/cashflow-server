@@ -13,6 +13,7 @@ import {
   GetCommand,
   UpdateCommand,
   PutCommand,
+  DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type { UserEntitlements } from './authorization';
 
@@ -248,6 +249,7 @@ async function getOrCreateAnchorDay(
 
 /**
  * Reset the user's billing anchor to today (used when user upgrades tier).
+ * Also clears the old billing period usage record so the user starts fresh.
  */
 export async function resetBillingAnchor(
   tableName: string,
@@ -257,24 +259,57 @@ export async function resetBillingAnchor(
   tier: string
 ): Promise<number> {
   const anchorKey = buildAnchorKey(timezone, functionName);
-  const anchorDay = getDayOfMonth(timezone);
+  const newAnchorDay = getDayOfMonth(timezone);
   const now = new Date().toISOString();
 
+  // Step 1: Get the OLD anchor to find the old billing period
+  let oldAnchorDay: number | null = null;
+  try {
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: tableName,
+        Key: { userId, periodFunction: anchorKey },
+      })
+    );
+    oldAnchorDay = result.Item?.anchorDay || null;
+  } catch (error) {
+    console.log('No existing anchor found, skipping usage cleanup');
+  }
+
+  // Step 2: If old anchor exists, delete the old billing period usage record
+  if (oldAnchorDay !== null) {
+    const { periodStart } = calculateBillingPeriod(oldAnchorDay, timezone);
+    const oldBillingKey = buildBillingPeriodKey(periodStart, timezone, functionName);
+
+    try {
+      await docClient.send(
+        new DeleteCommand({
+          TableName: tableName,
+          Key: { userId, periodFunction: oldBillingKey },
+        })
+      );
+      console.log(`Deleted old usage record: ${oldBillingKey}`);
+    } catch (error) {
+      console.error('Failed to delete old usage record:', error);
+    }
+  }
+
+  // Step 3: Update the anchor to today
   await docClient.send(
     new UpdateCommand({
       TableName: tableName,
       Key: { userId, periodFunction: anchorKey },
       UpdateExpression: 'SET anchorDay = :day, tier = :tier, updatedAt = :now, resetAt = :now',
       ExpressionAttributeValues: {
-        ':day': anchorDay,
+        ':day': newAnchorDay,
         ':tier': tier,
         ':now': now,
       },
     })
   );
 
-  console.log(`Reset billing anchor for user ${userId}: day ${anchorDay}`);
-  return anchorDay;
+  console.log(`Reset billing anchor for user ${userId}: day ${newAnchorDay}`);
+  return newAnchorDay;
 }
 
 /**
