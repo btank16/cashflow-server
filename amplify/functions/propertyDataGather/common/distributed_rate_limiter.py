@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 class RateLimitService(str, Enum):
     """Supported services for rate limiting."""
-    NOMINATIM = 'nominatim'
+    GOOGLE_ADDRESS_VALIDATION = 'google_address_validation'
+    AWS_GEO_PLACES = 'aws_geo_places'
     RENTCAST = 'rentcast'
     OVERPASS = 'overpass'
 
@@ -43,10 +44,15 @@ class RateLimitConfig:
 
 # Pre-configured rate limits for each service
 RATE_LIMIT_CONFIGS: Dict[RateLimitService, RateLimitConfig] = {
-    RateLimitService.NOMINATIM: RateLimitConfig(
-        service=RateLimitService.NOMINATIM,
-        requests_per_window=1,
-        window_seconds=1  # 1 request per second per Nominatim usage policy
+    RateLimitService.GOOGLE_ADDRESS_VALIDATION: RateLimitConfig(
+        service=RateLimitService.GOOGLE_ADDRESS_VALIDATION,
+        requests_per_window=50,
+        window_seconds=1  
+    ),
+    RateLimitService.AWS_GEO_PLACES: RateLimitConfig(
+        service=RateLimitService.AWS_GEO_PLACES,
+        requests_per_window=50,
+        window_seconds=1  
     ),
     RateLimitService.RENTCAST: RateLimitConfig(
         service=RateLimitService.RENTCAST,
@@ -85,8 +91,8 @@ class DistributedRateLimiter:
         limiter = DistributedRateLimiter(table_name='RateLimitCounter')
 
         # Acquire a slot (blocks until available or timeout)
-        if limiter.acquire(RateLimitService.NOMINATIM, timeout=10.0):
-            response = nominatim_request()
+        if limiter.acquire(RateLimitService.GOOGLE_ADDRESS_VALIDATION, timeout=10.0):
+            response = geocode_request()
         else:
             raise Exception("Rate limit timeout")
     """

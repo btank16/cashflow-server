@@ -60,6 +60,7 @@ export const newRentalWorkflow = defineFunction(
     lambdaFunction.addEnvironment('PERPLEXITY_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI');
     lambdaFunction.addEnvironment('GEMINI_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/GeminiAPI');
     lambdaFunction.addEnvironment('RENTCAST_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/RentCastAPI');
+    lambdaFunction.addEnvironment('GOOGLE_MAPS_PARAM_NAME', '/amplify/shared/d1yieg8lf5bsxx/GoogleMapsAPI');
 
     // Environment variable for WorkflowJob DynamoDB table (will be set by backend.ts)
     // This is a placeholder - the actual table name will be injected during deployment
@@ -77,6 +78,7 @@ export const newRentalWorkflow = defineFunction(
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/PerplexityAPI`,
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/GeminiAPI`,
           `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/RentCastAPI`,
+          `arn:aws:ssm:*:*:parameter/amplify/shared/d1yieg8lf5bsxx/GoogleMapsAPI`,
         ],
       })
     );
@@ -109,6 +111,14 @@ export const newRentalWorkflow = defineFunction(
         resources: [
           `arn:aws:dynamodb:*:*:table/*RateLimitCounter*`,
         ],
+      })
+    );
+
+    // Grant Lambda permission to use AWS Location Service v2 (geo-places) for geocoding
+    lambdaFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['geo-places:Geocode'],
+        resources: ['*'],  // geo-places v2 has no resource ARNs
       })
     );
 

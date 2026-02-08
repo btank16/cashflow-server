@@ -22,14 +22,8 @@ from .gemini_client import GeminiClient, GeminiRequest
 from .base_ai_client import BaseAIClient
 from .aws_clients import (
     get_all_api_clients_from_env,
+    get_google_maps_api_key,
     APIClients
-)
-from .rate_limiter import (
-    RateLimiter,
-    MultiServiceRateLimiter,
-    get_nominatim_limiter,
-    get_rentcast_limiter,
-    reset_all_limiters
 )
 from .distributed_rate_limiter import (
     DistributedRateLimiter,
@@ -76,13 +70,8 @@ __all__ = [
     'BaseAIClient',
     # AWS utilities
     'get_all_api_clients_from_env',
+    'get_google_maps_api_key',
     'APIClients',
-    # Rate limiting (local - per Lambda instance)
-    'RateLimiter',
-    'MultiServiceRateLimiter',
-    'get_nominatim_limiter',
-    'get_rentcast_limiter',
-    'reset_all_limiters',
     # Rate limiting (distributed - across Lambda instances via DynamoDB)
     'DistributedRateLimiter',
     'RateLimitService',

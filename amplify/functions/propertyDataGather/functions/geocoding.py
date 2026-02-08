@@ -1,9 +1,10 @@
-"""Geocoding function using OpenStreetMap Nominatim API via direct HTTP requests."""
+"""Geocoding functions using Google Address Validation API and AWS Location Service v2."""
 
 from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel
 import logging
 import requests
+import boto3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..common.types import FunctionResult, ErrorCode
@@ -17,14 +18,24 @@ from ..common.distributed_rate_limiter import (
     acquire_rate_limit,
     RateLimitService
 )
+from ..common.aws_clients import get_google_maps_api_key
 
 logger = logging.getLogger(__name__)
 
-# Nominatim API configuration
-NOMINATIM_API_URL = "https://nominatim.openstreetmap.org/search"
-USER_AGENT = "CashflowTotal/1.0 (support@cashflow.deal)"
-REQUEST_TIMEOUT = 30  # seconds (increased from 10 due to public API latency)
-RATE_LIMIT_DELAY = 1.0  # seconds between requests (Nominatim usage policy)
+# Google Address Validation API configuration
+GOOGLE_VALIDATION_URL = "https://addressvalidation.googleapis.com/v1:validateAddress"
+REQUEST_TIMEOUT = 30  # seconds
+
+# AWS Location Service v2 (geo-places) client - module-level singleton
+_geo_places_client = None
+
+
+def _get_geo_places_client():
+    """Get or create the AWS geo-places client singleton."""
+    global _geo_places_client
+    if _geo_places_client is None:
+        _geo_places_client = boto3.client('geo-places')
+    return _geo_places_client
 
 
 class GeocodingInput(BaseModel):
@@ -35,21 +46,44 @@ class GeocodingInput(BaseModel):
     zip: Optional[str] = None
 
 
-def _enforce_rate_limit():
-    """
-    Enforce Nominatim's rate limit of 1 request per second.
+def _determine_address_type(metadata: Dict[str, Any], usps_data: Dict[str, Any]) -> str:
+    """Determine address type from Google Address Validation response.
 
-    Uses distributed rate limiting via DynamoDB to coordinate across
-    multiple Lambda invocations. Falls back to local limiting if
-    DynamoDB is unavailable.
+    Args:
+        metadata: result.metadata from Google API response
+        usps_data: result.uspsData from Google API response
 
-    Nominatim usage policy requires maximum 1 request per second.
-    https://operations.osmfoundation.org/policies/nominatim/
+    Returns:
+        Address type: "house", "commercial", "firm", "highrise", or "unknown"
     """
-    if not acquire_rate_limit(RateLimitService.NOMINATIM, timeout=30.0):
-        logger.warning("Nominatim rate limit timeout after 30s, proceeding anyway")
+    if metadata.get('residential') is True:
+        return 'house'
+    if metadata.get('business') is True:
+        return 'commercial'
+    record_type = usps_data.get('addressRecordType', '')
+    if record_type == 'F':
+        return 'firm'
+    if record_type == 'H':
+        return 'highrise'
+    if record_type in ('S', 'R'):
+        return 'house'  # Street/Rural addresses are likely residential
+    return 'unknown'
+
+
+def _enforce_rate_limit_google():
+    """Enforce Google Address Validation rate limit (50 req/sec)."""
+    if not acquire_rate_limit(RateLimitService.GOOGLE_ADDRESS_VALIDATION, timeout=30.0):
+        logger.warning("Google Address Validation rate limit timeout after 30s, proceeding anyway")
     else:
-        logger.debug("Nominatim rate limit slot acquired")
+        logger.debug("Google Address Validation rate limit slot acquired")
+
+
+def _enforce_rate_limit_aws():
+    """Enforce AWS geo-places rate limit (50 req/sec)."""
+    if not acquire_rate_limit(RateLimitService.AWS_GEO_PLACES, timeout=30.0):
+        logger.warning("AWS geo-places rate limit timeout after 30s, proceeding anyway")
+    else:
+        logger.debug("AWS geo-places rate limit slot acquired")
 
 
 @measure_execution_time
@@ -57,29 +91,17 @@ def get_coordinates(
     input_data: Dict[str, Any]
 ) -> FunctionResult[Dict[str, Any]]:
     """
-    Convert address to coordinates using OpenStreetMap Nominatim API via direct HTTP requests.
+    Validate and geocode an address using Google Address Validation API.
 
-    This function complies with Nominatim's usage policy:
-    - Custom User-Agent header (required)
-    - 1 request per second rate limiting (enforced)
-    - Results should be cached by calling application
+    Returns residential classification, coordinates, USPS data, and county
+    in a single API call.
 
     Args:
         input_data: Dictionary containing street, city, state, and optional zip
 
     Returns:
-        FunctionResult containing raw Nominatim JSON response with all geocoding data
-
-    The raw JSON response includes:
-        - lat: Latitude as string
-        - lon: Longitude as string
-        - display_name: Full formatted address
-        - address: Dictionary with structured address components including:
-            - house_number, road, neighbourhood, suburb, city, county, state, postcode, country, country_code
-        - place_id: Nominatim place identifier
-        - osm_type: OSM element type (node, way, relation)
-        - osm_id: OSM element ID
-        - boundingbox: Geographic bounding box
+        FunctionResult containing geocoding data with lat, lon, type, display_name,
+        address dict (with county, postcode, state, city, road), and _google_metadata.
 
     Example:
         >>> input_data = {
@@ -93,7 +115,6 @@ def get_coordinates(
         ...     lat = result.data['lat']
         ...     lon = result.data['lon']
         ...     county = result.data['address']['county']
-        ...     zip_code = result.data['address']['postcode']
     """
     # Validate input
     validation = validate_input(input_data, ['street', 'city', 'state'])
@@ -113,40 +134,32 @@ def get_coordinates(
             address_parts.append(geo_input.zip)
         full_address = ", ".join(part for part in address_parts if part)
 
-        logger.info(f"Geocoding address: {full_address}")
+        logger.info(f"Geocoding address via Google Address Validation: {full_address}")
 
-        # Enforce rate limiting (1 req/sec as per Nominatim usage policy)
-        _enforce_rate_limit()
+        # Get API key
+        api_key = get_google_maps_api_key()
 
-        # Use structured query parameters (more reliable than free-form 'q' parameter)
-        # Only include non-empty values to avoid confusing Nominatim
-        params = {
-            'country': 'USA',
-            'format': 'json',
-            'addressdetails': 1,  # Include structured address details
-            'limit': 1  # Only return top result
+        # Enforce rate limiting
+        _enforce_rate_limit_google()
+
+        # Build request body
+        request_body = {
+            'address': {
+                'regionCode': 'US',
+                'locality': geo_input.city,
+                'administrativeArea': geo_input.state,
+                'addressLines': [geo_input.street],
+            },
+            'enableUspsCass': True,
         }
-        # Add address components only if they have values
-        if geo_input.street:
-            params['street'] = geo_input.street
-        if geo_input.city:
-            params['city'] = geo_input.city
-        if geo_input.state:
-            params['state'] = geo_input.state
         if geo_input.zip:
-            params['postalcode'] = geo_input.zip
+            request_body['address']['postalCode'] = geo_input.zip
 
-        # Prepare headers (User-Agent is REQUIRED by Nominatim)
-        headers = {
-            'User-Agent': USER_AGENT
-        }
-
-        # Make HTTP request to Nominatim API
-        logger.debug(f"Calling Nominatim API: {NOMINATIM_API_URL}")
-        response = requests.get(
-            NOMINATIM_API_URL,
-            params=params,
-            headers=headers,
+        # Make HTTP request to Google Address Validation API
+        logger.debug(f"Calling Google Address Validation API")
+        response = requests.post(
+            f"{GOOGLE_VALIDATION_URL}?key={api_key}",
+            json=request_body,
             timeout=REQUEST_TIMEOUT
         )
 
@@ -155,69 +168,86 @@ def get_coordinates(
 
         # Parse JSON response
         json_data = response.json()
+        result = json_data.get('result', {})
 
-        # If structured query fails, try free-form query as fallback
-        if not json_data or len(json_data) == 0:
-            logger.info(f"Structured query failed, trying free-form query for: {full_address}")
-            _enforce_rate_limit()
+        # Extract geocode location
+        geocode = result.get('geocode', {})
+        location = geocode.get('location', {})
+        lat = location.get('latitude')
+        lon = location.get('longitude')
 
-            # Fallback to free-form query
-            fallback_params = {
-                'q': f"{full_address}, USA",
-                'format': 'json',
-                'addressdetails': 1,
-                'limit': 1,
-                'countrycodes': 'us'
-            }
-
-            response = requests.get(
-                NOMINATIM_API_URL,
-                params=fallback_params,
-                headers=headers,
-                timeout=REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            json_data = response.json()
-
-        if not json_data or len(json_data) == 0:
-            logger.warning(f"No results found for address: {full_address}")
+        if lat is None or lon is None:
+            logger.warning(f"No coordinates found for address: {full_address}")
             return create_error_response(
-                f"No results found for address: {full_address}",
+                f"No coordinates found for address: {full_address}",
                 ErrorCode.NOT_FOUND
             )
 
-        # Use first result
-        geocode_data = json_data[0]
+        # Extract metadata and USPS data for type determination
+        metadata = result.get('metadata', {})
+        usps_data = result.get('uspsData', {})
+        verdict = result.get('verdict', {})
+
+        # Determine address type
+        address_type = _determine_address_type(metadata, usps_data)
+
+        # Extract formatted address
+        address_obj = result.get('address', {})
+        formatted_address = address_obj.get('formattedAddress', full_address)
+
+        # Extract county from USPS data
+        county = usps_data.get('county', '')
 
         logger.info(
-            f"Successfully geocoded to: {geocode_data.get('lat')}, {geocode_data.get('lon')}"
+            f"Successfully geocoded to: {lat}, {lon} (type={address_type})"
         )
 
-        # Return raw Nominatim JSON data
+        # Build response dict (backward compatible with orchestrator)
+        response_data = {
+            'lat': str(lat),
+            'lon': str(lon),
+            'type': address_type,
+            'display_name': formatted_address,
+            'address': {
+                'county': county,
+                'postcode': geo_input.zip or '',
+                'state': geo_input.state,
+                'city': geo_input.city,
+                'street': geo_input.street,
+            },
+            '_google_metadata': {
+                'residential': metadata.get('residential'),
+                'business': metadata.get('business'),
+                'dpv_confirmation': usps_data.get('dpvConfirmation'),
+                'address_record_type': usps_data.get('addressRecordType'),
+                'address_complete': verdict.get('addressComplete'),
+            }
+        }
+
         return create_success_response(
-            geocode_data,
+            response_data,
             metadata={
-                'source': 'nominatim',
+                'source': 'google_address_validation',
                 'query': full_address,
                 'api_calls': 1,
-                'result_count': len(json_data)
+                'result_count': 1
             }
         )
 
     except requests.exceptions.Timeout:
-        logger.error("Nominatim API request timed out")
+        logger.error("Google Address Validation API request timed out")
         return create_error_response(
             f"Geocoding request timed out after {REQUEST_TIMEOUT} seconds",
             ErrorCode.TIMEOUT_ERROR
         )
     except requests.exceptions.HTTPError as e:
-        logger.error(f"Nominatim API HTTP error: {e}")
+        logger.error(f"Google Address Validation API HTTP error: {e}")
         return create_error_response(
-            f"Nominatim API error: {e}",
+            f"Google Address Validation API error: {e}",
             ErrorCode.EXTERNAL_API_ERROR
         )
     except requests.exceptions.RequestException as e:
-        logger.error(f"Network error calling Nominatim API: {e}")
+        logger.error(f"Network error calling Google Address Validation API: {e}")
         return create_error_response(
             f"Network error: {e}",
             ErrorCode.EXTERNAL_API_ERROR
@@ -228,14 +258,77 @@ def get_coordinates(
             f"Invalid input format: {str(e)}",
             ErrorCode.VALIDATION_ERROR
         )
-    except KeyError as e:
-        logger.error(f"Missing expected field in Nominatim response: {e}")
-        return create_error_response(
-            f"Invalid response from Nominatim API: missing field {e}",
-            ErrorCode.DATA_VALIDATION_ERROR
-        )
     except Exception as e:
         logger.error(f"Unexpected geocoding error: {str(e)}", exc_info=True)
+        return create_error_response(
+            f"Failed to geocode address: {str(e)}",
+            ErrorCode.EXTERNAL_API_ERROR
+        )
+
+
+def _geocode_single_address_aws(address: Dict[str, Any]) -> FunctionResult[Dict[str, Any]]:
+    """
+    Geocode a single address using AWS Location Service v2 (geo-places).
+
+    Args:
+        address: Dictionary with street, city, state, zip keys
+
+    Returns:
+        FunctionResult with lat/lon as strings
+    """
+    try:
+        # Build query text
+        parts = [address.get('street', ''), address.get('city', ''), address.get('state', '')]
+        zip_code = address.get('zip', '')
+        if zip_code:
+            parts.append(zip_code)
+        query_text = ', '.join(p for p in parts if p)
+
+        if not query_text.strip():
+            return create_error_response(
+                "Empty address query",
+                ErrorCode.VALIDATION_ERROR
+            )
+
+        # Enforce rate limiting
+        _enforce_rate_limit_aws()
+
+        # Call AWS geo-places
+        client = _get_geo_places_client()
+        response = client.geocode(
+            QueryText=query_text,
+            Filter={'IncludeCountries': ['USA']},
+            MaxResults=1
+        )
+
+        result_items = response.get('ResultItems', [])
+        if not result_items:
+            return create_error_response(
+                f"No results found for address: {query_text}",
+                ErrorCode.NOT_FOUND
+            )
+
+        # Position is [longitude, latitude] (lon first!)
+        position = result_items[0].get('Position', [])
+        if len(position) < 2:
+            return create_error_response(
+                f"Invalid position data for address: {query_text}",
+                ErrorCode.DATA_VALIDATION_ERROR
+            )
+
+        lon, lat = position[0], position[1]
+
+        return create_success_response(
+            {'lat': str(lat), 'lon': str(lon)},
+            metadata={
+                'source': 'aws_geo_places',
+                'query': query_text,
+                'api_calls': 1
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"AWS geo-places geocoding error: {str(e)}", exc_info=True)
         return create_error_response(
             f"Failed to geocode address: {str(e)}",
             ErrorCode.EXTERNAL_API_ERROR
@@ -246,10 +339,10 @@ def batch_geocode_addresses(
     addresses: List[Dict[str, Any]]
 ) -> List[FunctionResult[Dict[str, Any]]]:
     """
-    Geocode multiple addresses in parallel while respecting rate limits.
+    Geocode multiple addresses in parallel using AWS Location Service v2 (geo-places).
 
-    Uses ThreadPoolExecutor to parallelize API calls while maintaining
-    Nominatim's 1-second rate limit via thread-safe global lock.
+    Uses ThreadPoolExecutor to parallelize API calls while respecting
+    rate limits via distributed rate limiter.
 
     Args:
         addresses: List of address dictionaries, each with street, city, state, zip
@@ -266,17 +359,12 @@ def batch_geocode_addresses(
         >>> for i, result in enumerate(results):
         ...     if result.success:
         ...         print(f"Address {i}: {result.data['lat']}, {result.data['lon']}")
-
-    Note:
-        - Uses max_workers=3 to allow parallelism while managing rate limits
-        - The global _geocoding_lock ensures 1-second spacing between requests
-        - Results are returned in the same order as input addresses
     """
     def geocode_with_index(index: int, address: Dict[str, Any]) -> Tuple[int, FunctionResult]:
         """Geocode single address and return with its index to maintain order."""
         try:
             logger.debug(f"Geocoding address {index}: {address.get('street', 'N/A')[:50]}...")
-            result = get_coordinates(address)
+            result = _geocode_single_address_aws(address)
             if result.success:
                 logger.debug(f"Address {index} geocoded: lat={result.data.get('lat')}, lon={result.data.get('lon')}")
             else:
@@ -294,14 +382,14 @@ def batch_geocode_addresses(
         logger.warning("batch_geocode_addresses called with empty address list")
         return []
 
-    logger.info(f"Batch geocoding {len(addresses)} addresses in parallel")
+    logger.info(f"Batch geocoding {len(addresses)} addresses via AWS geo-places")
 
     # Initialize results list with None placeholders
     results: List[Optional[FunctionResult]] = [None] * len(addresses)
 
     # Use ThreadPoolExecutor for parallel requests
-    # max_workers=3 allows some parallelism while respecting rate limits
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    max_workers = min(len(addresses), 10)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all geocoding tasks
         futures = {
             executor.submit(geocode_with_index, i, addr): i
@@ -314,7 +402,6 @@ def batch_geocode_addresses(
                 index, result = future.result()
                 results[index] = result
             except Exception as e:
-                # This should rarely happen due to try/except in geocode_with_index
                 logger.error(f"Unexpected error in batch geocoding future: {e}", exc_info=True)
                 original_index = futures[future]
                 results[original_index] = create_error_response(
