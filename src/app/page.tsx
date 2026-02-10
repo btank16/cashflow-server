@@ -9,6 +9,7 @@ import FlipIcon from "@/components/icons/FlipIcon";
 const navLinks = [
   { label: "Features", href: "#cashflow-ai" },
   { label: "Download", href: "#download" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Contact", href: "/contact" },
 ];
 
