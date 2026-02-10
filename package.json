@@ -1,34 +1,49 @@
 {
   "name": "cashflow-server",
   "version": "1.0.0",
+  "private": true,
   "description": "",
-  "main": "index.js",
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "devDependencies": {
-    "@aws-amplify/backend": "^1.14.1",
-    "@aws-amplify/backend-cli": "^1.4.11",
-    "aws-cdk": "^2.1007.0",
-    "aws-cdk-lib": "^2.188.0",
-    "constructs": "^10.4.2",
-    "esbuild": "^0.25.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.7.3",
-    "@types/node": "^22.0.0",
-    "@google/genai": "^1.0.0"
-  },
   "dependencies": {
+    "@aws-amplify/adapter-nextjs": "^1.7.2",
     "@aws-sdk/client-cognito-identity-provider": "^3.782.0",
     "@aws-sdk/client-dynamodb": "^3.782.0",
     "@aws-sdk/client-lambda": "^3.782.0",
     "@aws-sdk/lib-dynamodb": "^3.782.0",
+    "@emailjs/browser": "^4.4.1",
     "@perplexity-ai/perplexity_ai": "^0.11.0",
     "@types/aws-lambda": "^8.10.148",
     "apify-client": "^2.19.0",
-    "aws-amplify": "^6.13.1"
+    "aws-amplify": "^6.13.1",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.14.1",
+    "@aws-amplify/backend-cli": "^1.4.11",
+    "@google/genai": "^1.0.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "aws-cdk": "^2.1007.0",
+    "aws-cdk-lib": "^2.188.0",
+    "constructs": "^10.4.2",
+    "esbuild": "^0.25.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
   }
 }

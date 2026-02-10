@@ -185,6 +185,10 @@ const userSubscriptionTableName = userSubscriptionTable.tableName;
 getEntitlementsLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
 userSubscriptionTable.grantReadData(getEntitlementsLambda);
 
+// Add subscription table access to startRentalWorkflow (for tier-based usage limits)
+startRentalWorkflowLambda.addEnvironment('SUBSCRIPTION_TABLE_NAME', userSubscriptionTableName);
+userSubscriptionTable.grantReadData(startRentalWorkflowLambda);
+
 const syncSubscriptionLambda = backend.syncSubscription.resources.lambda as Function;
 const revenueCatWebhookLambda = backend.revenueCatWebhook.resources.lambda as Function;
 

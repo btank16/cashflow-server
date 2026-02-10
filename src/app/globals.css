@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #F6FDF1;
+  --color-foreground: #121615;
+  --color-dark-green-primary: #0E2C28;
+  --color-dark-green-secondary: #173D38;
+  --color-dark-green-tertiary: #2B5953;
+  --color-primary-green: #109C50;
+  --color-bright-green: #8FB205;
+  --color-secondary-green: #D7EDE2;
+  --color-tertiary-grey: #F3F8F8;
+  --color-primary-grey: #5C7070;
+  --color-primary-black: #121615;
+  --color-primary-blue: #087A93;
+  --color-primary-purple: #6D6AEF;
+  --color-primary-orange: #CE7534;
+  --color-primary-cyan: #0891B2;
+  --color-secondary-cyan: #CFFAFE;
+  --color-quaternary-green: #A4E1CF;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--color-dark-green-primary);
+  color: #fff;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}
+
+/* Ambient glow keyframes */
+@keyframes glow-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  33% { transform: translate(30px, -20px) scale(1.1); opacity: 0.6; }
+  66% { transform: translate(-20px, 15px) scale(0.95); opacity: 0.35; }
+}
+
+@keyframes glow-drift-slow {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.3; }
+  50% { transform: translate(-40px, 25px) scale(1.15); opacity: 0.5; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-glow-drift {
+  animation: glow-drift 8s ease-in-out infinite;
+}
+
+.animate-glow-drift-slow {
+  animation: glow-drift-slow 12s ease-in-out infinite;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.8s ease-out both;
+}
+
+.animate-fade-in-up-delay-1 {
+  animation: fade-in-up 0.8s ease-out 0.15s both;
+}
+
+.animate-fade-in-up-delay-2 {
+  animation: fade-in-up 0.8s ease-out 0.3s both;
+}
+
+.animate-fade-in-up-delay-3 {
+  animation: fade-in-up 0.8s ease-out 0.45s both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 3s ease-in-out infinite;
+}
+
+/* Subtle grid overlay — hidden on mobile for performance */
+.grid-overlay {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .grid-overlay {
+    display: block;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-drift,
+  .animate-glow-drift-slow,
+  .animate-fade-in-up,
+  .animate-fade-in-up-delay-1,
+  .animate-fade-in-up-delay-2,
+  .animate-fade-in-up-delay-3,
+  .animate-pulse-soft {
+    animation: none !important;
+  }
+}
+
+/* Glass card — solid bg on mobile, backdrop-blur on md+ */
+.glass-card {
+  background: rgba(23, 61, 56, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card-light {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+@media (min-width: 768px) {
+  .glass-card {
+    background: rgba(23, 61, 56, 0.4);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .glass-card-light {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
