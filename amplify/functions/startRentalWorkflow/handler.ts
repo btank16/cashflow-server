@@ -47,7 +47,7 @@ export const handler = async (
 
     // Security: Require authenticated user - no anonymous fallback
     const userId = (event.identity as any)?.sub ||
-                   (event.identity as any)?.claims?.sub;
+      (event.identity as any)?.claims?.sub;
 
     if (!userId) {
       console.error('Authentication required - no user ID found');
@@ -60,9 +60,9 @@ export const handler = async (
 
     // Security: Input length validation
     if (street.length > MAX_INPUT_LENGTH ||
-        city.length > MAX_INPUT_LENGTH ||
-        state.length > MAX_INPUT_LENGTH ||
-        zip.length > MAX_INPUT_LENGTH) {
+      city.length > MAX_INPUT_LENGTH ||
+      state.length > MAX_INPUT_LENGTH ||
+      zip.length > MAX_INPUT_LENGTH) {
       console.error('Input validation failed: input exceeds maximum length');
       return {
         jobId: null,
@@ -71,9 +71,9 @@ export const handler = async (
       };
     }
 
-    // =========================================================================
+    // ========================================================================
     // Access Control: Check feature access and usage limits
-    // =========================================================================
+    // ========================================================================
     const cognitoGroups = extractCognitoGroups(event.identity);
     console.log('User groups:', cognitoGroups);
 

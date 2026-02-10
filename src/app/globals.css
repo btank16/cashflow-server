@@ -78,25 +78,55 @@ body {
   animation: pulse-soft 3s ease-in-out infinite;
 }
 
-/* Subtle grid overlay */
+/* Subtle grid overlay — hidden on mobile for performance */
 .grid-overlay {
-  background-image:
-    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-  background-size: 64px 64px;
+  display: none;
 }
 
-/* Glass card */
+@media (min-width: 768px) {
+  .grid-overlay {
+    display: block;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-glow-drift,
+  .animate-glow-drift-slow,
+  .animate-fade-in-up,
+  .animate-fade-in-up-delay-1,
+  .animate-fade-in-up-delay-2,
+  .animate-fade-in-up-delay-3,
+  .animate-pulse-soft {
+    animation: none !important;
+  }
+}
+
+/* Glass card — solid bg on mobile, backdrop-blur on md+ */
 .glass-card {
-  background: rgba(23, 61, 56, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(23, 61, 56, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-card-light {
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+@media (min-width: 768px) {
+  .glass-card {
+    background: rgba(23, 61, 56, 0.4);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .glass-card-light {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
 }

@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Image from "next/image";
 import RentalIcon from "@/components/icons/RentalIcon";
 import BRRRRIcon from "@/components/icons/BRRRRIcon";
@@ -10,6 +13,8 @@ const navLinks = [
 ];
 
 export default function Home() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <main className="overflow-x-hidden">
       {/* ── Navigation ── */}
@@ -35,27 +40,65 @@ export default function Home() {
           </div>
           <a
             href="#download"
-            className="rounded-full border border-white/20 px-5 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+            className="hidden rounded-full border border-white/20 px-5 py-2 text-sm font-medium text-white transition hover:bg-white/10 sm:inline-flex"
           >
             Get the App
           </a>
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 md:hidden"
+            aria-label="Toggle menu"
+          >
+            <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              {menuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
+        {/* Mobile dropdown menu */}
+        {menuOpen && (
+          <div className="mx-6 rounded-2xl border border-white/10 bg-[#0E2C28]/95 p-4 backdrop-blur-sm md:hidden">
+            {navLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                onClick={() => setMenuOpen(false)}
+                className="block rounded-xl px-4 py-3 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
+              >
+                {link.label}
+              </a>
+            ))}
+            <a
+              href="#download"
+              onClick={() => setMenuOpen(false)}
+              className="mt-2 block rounded-full border border-white/20 px-4 py-2.5 text-center text-sm font-medium text-white transition hover:bg-white/10"
+            >
+              Get the App
+            </a>
+          </div>
+        )}
       </nav>
 
       {/* ── Hero ── */}
       <section className="relative min-h-screen overflow-hidden">
-        {/* Ambient gradient orbs */}
-        <div className="pointer-events-none absolute inset-0">
+        {/* Ambient gradient orbs — hidden on mobile for GPU performance */}
+        <div className="pointer-events-none absolute inset-0 hidden md:block">
           <div className="animate-glow-drift absolute -top-32 right-1/4 h-[600px] w-[600px] rounded-full bg-[#109C50]/20 blur-[128px]" />
           <div className="animate-glow-drift-slow absolute -bottom-48 left-1/4 h-[500px] w-[500px] rounded-full bg-[#8FB205]/15 blur-[128px]" />
           <div className="animate-glow-drift-slow absolute right-0 top-1/3 h-[400px] w-[400px] rounded-full bg-[#0891B2]/10 blur-[128px]" />
         </div>
+        {/* Lightweight mobile gradient fallback */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#0891B2]/5 md:hidden" />
 
         {/* Grid overlay */}
         <div className="grid-overlay pointer-events-none absolute inset-0" />
 
-        {/* Decorative thin lines */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* Decorative thin lines — hidden on mobile */}
+        <div className="pointer-events-none absolute inset-0 hidden overflow-hidden md:block">
           <div className="absolute left-1/4 top-0 h-full w-px bg-gradient-to-b from-transparent via-white/[0.06] to-transparent" />
           <div className="absolute left-1/2 top-0 h-full w-px bg-gradient-to-b from-transparent via-white/[0.06] to-transparent" />
           <div className="absolute left-3/4 top-0 h-full w-px bg-gradient-to-b from-transparent via-white/[0.06] to-transparent" />
@@ -77,7 +120,7 @@ export default function Home() {
             <span className="ml-1">&rarr;</span>
           </a>
 
-          <h1 className="animate-fade-in-up-delay-1 max-w-4xl text-5xl font-bold leading-[1.1] tracking-tight md:text-7xl">
+          <h1 className="animate-fade-in-up-delay-1 max-w-4xl text-3xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-7xl">
             Instant Insights for
             <br />
             <span className="bg-gradient-to-r from-[#8FB205] via-[#109C50] to-[#0891B2] bg-clip-text text-transparent">
@@ -85,7 +128,7 @@ export default function Home() {
             </span>
           </h1>
 
-          <p className="animate-fade-in-up-delay-2 mt-6 max-w-2xl text-lg leading-relaxed text-white/60 md:text-xl">
+          <p className="animate-fade-in-up-delay-2 mt-6 max-w-2xl text-base leading-relaxed text-white/60 sm:text-lg md:text-xl">
             AI-powered real estate calculators that analyze rental properties,
             BRRRR strategies, and fix &amp; flips — so you can invest with
             confidence.
@@ -94,20 +137,20 @@ export default function Home() {
           <div className="animate-fade-in-up-delay-3 mt-10 flex flex-wrap items-center justify-center gap-4">
             <a
               href="#download"
-              className="inline-flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 font-semibold text-[#0E2C28] transition hover:shadow-lg hover:shadow-white/10"
+              className="inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-3 text-sm font-semibold text-[#0E2C28] transition hover:shadow-lg hover:shadow-white/10 sm:px-7 sm:py-3.5 sm:text-base"
             >
               Download the App
             </a>
             <a
               href="#cashflow-ai"
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-7 py-3.5 font-semibold text-white transition hover:bg-white/10"
+              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:px-7 sm:py-3.5 sm:text-base"
             >
               Discover More
             </a>
           </div>
 
-          {/* Scroll indicator */}
-          <div className="absolute bottom-10 left-6 flex items-center gap-3 text-sm text-white/40">
+          {/* Scroll indicator — hidden on small mobile */}
+          <div className="absolute bottom-10 left-6 hidden items-center gap-3 text-sm text-white/40 sm:flex">
             <div className="flex h-8 w-5 items-start justify-center rounded-full border border-white/20 pt-1.5">
               <div className="h-1.5 w-1 animate-bounce rounded-full bg-white/60" />
             </div>
@@ -117,16 +160,16 @@ export default function Home() {
       </section>
 
       {/* ── CashflowAI Feature Section ── */}
-      <section id="cashflow-ai" className="relative py-32">
+      <section id="cashflow-ai" className="relative py-16 sm:py-24 md:py-32">
         {/* Background accent */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-px w-3/4 -translate-x-1/2 bg-gradient-to-r from-transparent via-[#0891B2]/30 to-transparent" />
-          <div className="animate-glow-drift-slow absolute left-1/3 top-1/4 h-[400px] w-[400px] rounded-full bg-[#0891B2]/8 blur-[128px]" />
+          <div className="animate-glow-drift-slow absolute left-1/3 top-1/4 hidden h-[400px] w-[400px] rounded-full bg-[#0891B2]/8 blur-[128px] md:block" />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
           {/* Section header */}
-          <div className="mb-20 max-w-3xl">
+          <div className="mb-12 max-w-3xl sm:mb-16 md:mb-20">
             <div className="mb-4 inline-flex items-center gap-2 text-sm font-medium tracking-wider text-[#0891B2] uppercase">
               <svg
                 className="h-4 w-4"
@@ -139,7 +182,7 @@ export default function Home() {
               </svg>
               CashflowAI
             </div>
-            <h2 className="text-4xl font-bold tracking-tight md:text-5xl">
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
               AI-Powered Property
               <br />
               <span className="text-[#0891B2]">Instant Insights</span>
@@ -152,7 +195,7 @@ export default function Home() {
           </div>
 
           {/* AI Insight Cards — three calculators */}
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {/* Rental */}
             <div className="glass-card group rounded-3xl p-7 transition hover:border-[#109C50]/30">
               <div className="mb-5 flex items-center gap-3">
@@ -241,7 +284,7 @@ export default function Home() {
       </section>
 
       {/* ── Features / How It Works ── */}
-      <section id="features" className="relative py-32">
+      <section id="features" className="relative py-16 sm:py-24 md:py-32">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-px w-3/4 -translate-x-1/2 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
         </div>
@@ -262,7 +305,7 @@ export default function Home() {
                 </svg>
                 How CashflowAI Works
               </div>
-              <h2 className="text-4xl font-bold tracking-tight md:text-5xl">
+              <h2 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
                 From address to analysis
                 <br />
                 <span className="text-white/40">in three steps</span>
@@ -313,7 +356,7 @@ export default function Home() {
             {/* Right — app screenshot */}
             <div className="flex justify-center">
               <div className="relative">
-                <div className="absolute -inset-8 rounded-[40px] bg-gradient-to-br from-[#109C50]/20 via-[#0891B2]/10 to-transparent blur-3xl" />
+                <div className="absolute -inset-8 hidden rounded-[40px] bg-gradient-to-br from-[#109C50]/20 via-[#0891B2]/10 to-transparent blur-3xl md:block" />
                 <div className="relative overflow-hidden rounded-[32px] border border-white/10 shadow-2xl shadow-black/40">
                   <Image
                     src="/images/IntroImage.png"
@@ -331,10 +374,10 @@ export default function Home() {
       </section>
 
       {/* ── Download CTA ── */}
-      <section id="download" className="relative py-32">
+      <section id="download" className="relative py-16 sm:py-24 md:py-32">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-px w-3/4 -translate-x-1/2 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-          <div className="animate-glow-drift absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#109C50]/10 blur-[128px]" />
+          <div className="animate-glow-drift absolute left-1/2 top-1/2 hidden h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#109C50]/10 blur-[128px] md:block" />
         </div>
 
         <div className="relative mx-auto max-w-3xl px-6 text-center lg:px-8">
@@ -345,7 +388,7 @@ export default function Home() {
             height={72}
             className="mx-auto mb-8 rounded-2xl"
           />
-          <h2 className="text-4xl font-bold tracking-tight md:text-5xl">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
             Start Analyzing Deals
           </h2>
           <p className="mt-4 text-lg text-white/50">
@@ -357,7 +400,7 @@ export default function Home() {
               href="https://apps.apple.com/us/app/cashflow-underwriter/id6746049962"
               target="_blank"
               rel="noopener noreferrer"
-              className="group inline-flex items-center gap-2.5 rounded-full bg-white px-8 py-4 text-lg font-semibold text-[#0E2C28] transition hover:shadow-lg hover:shadow-white/10"
+              className="group inline-flex items-center gap-2.5 rounded-full bg-white px-6 py-3 text-base font-semibold text-[#0E2C28] transition hover:shadow-lg hover:shadow-white/10 sm:px-8 sm:py-4 sm:text-lg"
             >
               <svg
                 className="h-5 w-5"
@@ -372,7 +415,7 @@ export default function Home() {
               href="https://play.google.com/store/apps/details?id=com.btanski.cashflow"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2.5 rounded-full border border-white/20 px-8 py-4 text-lg font-semibold text-white transition hover:bg-white/10"
+              className="inline-flex items-center gap-2.5 rounded-full border border-white/20 px-6 py-3 text-base font-semibold text-white transition hover:bg-white/10 sm:px-8 sm:py-4 sm:text-lg"
             >
               <svg
                 className="h-5 w-5"

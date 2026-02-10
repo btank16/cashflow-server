@@ -56,11 +56,13 @@ export default function ContactPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden">
-      {/* Ambient gradient orbs */}
-      <div className="pointer-events-none absolute inset-0">
+      {/* Ambient gradient orbs — hidden on mobile for GPU performance */}
+      <div className="pointer-events-none absolute inset-0 hidden md:block">
         <div className="animate-glow-drift absolute -top-32 right-1/4 h-[600px] w-[600px] rounded-full bg-[#109C50]/20 blur-[128px]" />
         <div className="animate-glow-drift-slow absolute -bottom-48 left-1/4 h-[500px] w-[500px] rounded-full bg-[#8FB205]/15 blur-[128px]" />
       </div>
+      {/* Lightweight mobile gradient fallback */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#8FB205]/5 md:hidden" />
 
       {/* Grid overlay */}
       <div className="grid-overlay pointer-events-none absolute inset-0" />
@@ -88,8 +90,8 @@ export default function ContactPage() {
 
       {/* Contact Form */}
       <div className="relative mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 pt-28 pb-16">
-        <div className="glass-card w-full rounded-3xl p-8 md:p-10">
-          <h1 className="mb-2 text-3xl font-bold tracking-tight md:text-4xl">
+        <div className="glass-card w-full rounded-3xl p-6 sm:p-8 md:p-10">
+          <h1 className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
             Get in Touch
           </h1>
           <p className="mb-8 text-white/50">
