@@ -6,7 +6,7 @@ import type { AppSyncResolverEvent } from 'aws-lambda';
 import {
   checkResidentAIAccess,
   extractCognitoGroups,
-  getUserEntitlements,
+  getUserEntitlementsAsync,
 } from '../shared/authorization';
 import { checkAndIncrementUsage } from '../shared/usage';
 
@@ -89,10 +89,13 @@ export const handler = async (
     }
 
     // 2. Check and increment usage (atomic operation)
-    const entitlements = getUserEntitlements(cognitoGroups);
+    // Use async version to check UserSubscription table first (for RevenueCat subscriptions)
+    // This ensures we use the correct tier even if the JWT's Cognito groups are stale
+    const entitlements = await getUserEntitlementsAsync(userId, cognitoGroups);
     console.log('User entitlements:', {
       tier: entitlements.tier,
       monthlyLimit: entitlements.monthlyLimit,
+      source: entitlements.source,
       timezone
     });
 

@@ -4,6 +4,12 @@
 amplify_outputs*
 amplifyconfiguration*
 
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
 # Python
 __pycache__/
 *.py[cod]
@@ -26,3 +32,13 @@ ENV/
 *.swp
 *.swo
 *~
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+
+# env files
+.env*
