@@ -454,16 +454,12 @@ export default function Home() {
               </a>
               <a
                 href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
                 className="transition hover:text-white"
               >
                 Privacy
               </a>
               <a
                 href="/terms"
-                target="_blank"
-                rel="noopener noreferrer"
                 className="transition hover:text-white"
               >
                 Terms
