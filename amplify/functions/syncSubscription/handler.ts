@@ -205,7 +205,7 @@ export const handler = async (event: LambdaEvent): Promise<SyncSubscriptionRespo
       );
     }
 
-    // Update UserSubscription table
+    // Update the UserSubscription table
     const now = new Date().toISOString();
 
     // Fetch existing record to preserve createdAt

@@ -22,11 +22,14 @@ export const PRODUCT_TO_TIER: Record<string, TierName> = {
   'investor_monthly_test': 'premium',
   'mogul_annual_test': 'platinum',
   'mogul_monthly_test': 'platinum',
-  // Android products (using offering:product format)
+  // Android products (webhook format - subscription:base_plan)
   'investor_tier:investorannual': 'premium',
   'investor_tier:investormonthly': 'premium',
   'mogul_tier:mogulannual': 'platinum',
   'mogul_tier:mogulmonthly': 'platinum',
+  // Android products (Subscriber API format - subscription ID only)
+  'investor_tier': 'premium',
+  'mogul_tier': 'platinum',
 };
 
 /**
