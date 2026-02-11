@@ -23,11 +23,10 @@ const TIERS = [
   {
     name: "Investor",
     color: "#087A93",
-    monthly: "$9.99/mo",
-    annual: "$79.99/yr",
+    monthly: "$19.99/mo",
+    annual: "$199.99/yr",
     monthlySubtext: "Billed monthly",
-    annualSubtext: "Only $6.67/mo",
-    popular: true,
+    annualSubtext: "Only $16.67/mo",
     features: [
       { text: "50 AI searches per month", included: true },
       { text: "Custom expense & rehab templates", included: true },
@@ -39,10 +38,11 @@ const TIERS = [
   {
     name: "Mogul",
     color: "#CE7534",
-    monthly: "$24.99/mo",
-    annual: "$199.99/yr",
+    monthly: "$39.99/mo",
+    annual: "$399.99/yr",
     monthlySubtext: "Billed monthly",
-    annualSubtext: "Only $16.67/mo",
+    annualSubtext: "Only $33.33/mo",
+    freeTrial: true,
     features: [
       { text: "200 AI searches per month", included: true },
       { text: "Custom expense & rehab templates", included: true },
@@ -139,7 +139,7 @@ export default function PricingPage() {
           >
             Annual
             <span className="ml-1.5 rounded-full bg-[#109C50]/20 px-2 py-0.5 text-xs text-[#109C50]">
-              Save 33%
+              Save 17%
             </span>
           </button>
         </div>
@@ -151,18 +151,18 @@ export default function PricingPage() {
               key={tier.name}
               className="glass-card relative flex flex-col rounded-3xl p-6 transition hover:border-white/15 sm:p-7"
               style={{
-                borderColor: tier.popular
+                borderColor: tier.freeTrial
                   ? `${tier.color}40`
                   : undefined,
               }}
             >
-              {/* Popular badge */}
-              {tier.popular && (
+              {/* Free trial badge */}
+              {tier.freeTrial && (
                 <div
                   className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-bold tracking-wider text-white uppercase"
                   style={{ backgroundColor: tier.color }}
                 >
-                  Most Popular
+                  Free Trial
                 </div>
               )}
 
@@ -242,21 +242,21 @@ export default function PricingPage() {
                 rel="noopener noreferrer"
                 className="block w-full rounded-full py-3 text-center text-sm font-semibold text-white transition"
                 style={{
-                  backgroundColor: tier.popular
+                  backgroundColor: tier.freeTrial
                     ? tier.color
                     : "transparent",
-                  border: tier.popular
+                  border: tier.freeTrial
                     ? "none"
                     : "1px solid rgba(255,255,255,0.15)",
                 }}
                 onMouseOver={(e) => {
-                  if (!tier.popular) {
+                  if (!tier.freeTrial) {
                     e.currentTarget.style.backgroundColor =
                       "rgba(255,255,255,0.08)";
                   }
                 }}
                 onMouseOut={(e) => {
-                  if (!tier.popular) {
+                  if (!tier.freeTrial) {
                     e.currentTarget.style.backgroundColor = "transparent";
                   }
                 }}
