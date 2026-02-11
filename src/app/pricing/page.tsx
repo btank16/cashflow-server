@@ -113,7 +113,7 @@ export default function PricingPage() {
             </span>
           </h1>
           <p className="mt-3 text-base text-white/50 sm:text-lg">
-            Analyze more leads. Close more deals.
+            Get your first week free.
           </p>
         </div>
 
