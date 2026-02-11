@@ -474,7 +474,7 @@ export const handler = async (event: APIGatewayEvent): Promise<APIGatewayRespons
     };
   }
 
-  // Parse webhook body
+  // Parse the webhook body
   let webhookData: RevenueCatWebhookEvent;
   try {
     const body = event.isBase64Encoded
