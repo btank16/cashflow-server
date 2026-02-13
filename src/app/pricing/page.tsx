@@ -58,13 +58,8 @@ export default function PricingPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden">
-      {/* Ambient gradient orbs */}
-      <div className="pointer-events-none absolute inset-0 hidden md:block">
-        <div className="animate-glow-drift absolute -top-32 right-1/4 h-[600px] w-[600px] rounded-full bg-[#109C50]/20 blur-[128px]" />
-        <div className="animate-glow-drift-slow absolute -bottom-48 left-1/4 h-[500px] w-[500px] rounded-full bg-[#0891B2]/15 blur-[128px]" />
-        <div className="animate-glow-drift-slow absolute right-0 top-1/3 h-[400px] w-[400px] rounded-full bg-[#CE7534]/8 blur-[128px]" />
-      </div>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#0891B2]/5 md:hidden" />
+      {/* Subtle gradient wash */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#0891B2]/5" />
 
       {/* Grid overlay */}
       <div className="grid-overlay pointer-events-none absolute inset-0" />
@@ -233,13 +228,7 @@ export default function PricingPage() {
 
               {/* CTA */}
               <a
-                href={
-                  tier.name === "Free"
-                    ? "https://apps.apple.com/us/app/cashflow-underwriter/id6746049962"
-                    : "https://apps.apple.com/us/app/cashflow-underwriter/id6746049962"
-                }
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/#download"
                 className="block w-full rounded-full py-3 text-center text-sm font-semibold text-white transition"
                 style={{
                   backgroundColor: tier.freeTrial

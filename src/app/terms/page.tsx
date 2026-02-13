@@ -11,12 +11,8 @@ export const metadata: Metadata = {
 export default function TermsOfUsePage() {
   return (
     <main className="relative min-h-screen overflow-hidden">
-      {/* Ambient gradient orbs */}
-      <div className="pointer-events-none absolute inset-0 hidden md:block">
-        <div className="animate-glow-drift absolute -top-32 right-1/4 h-[600px] w-[600px] rounded-full bg-[#109C50]/20 blur-[128px]" />
-        <div className="animate-glow-drift-slow absolute -bottom-48 left-1/4 h-[500px] w-[500px] rounded-full bg-[#8FB205]/15 blur-[128px]" />
-      </div>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#8FB205]/5 md:hidden" />
+      {/* Subtle gradient wash */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#8FB205]/5" />
       <div className="grid-overlay pointer-events-none absolute inset-0" />
 
       {/* Navigation */}
