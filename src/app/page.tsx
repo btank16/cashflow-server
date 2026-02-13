@@ -88,14 +88,8 @@ export default function Home() {
 
       {/* ── Hero ── */}
       <section className="relative min-h-screen overflow-hidden">
-        {/* Ambient gradient orbs — hidden on mobile for GPU performance */}
-        <div className="pointer-events-none absolute inset-0 hidden md:block">
-          <div className="animate-glow-drift absolute -top-32 right-1/4 h-[600px] w-[600px] rounded-full bg-[#109C50]/20 blur-[128px]" />
-          <div className="animate-glow-drift-slow absolute -bottom-48 left-1/4 h-[500px] w-[500px] rounded-full bg-[#8FB205]/15 blur-[128px]" />
-          <div className="animate-glow-drift-slow absolute right-0 top-1/3 h-[400px] w-[400px] rounded-full bg-[#0891B2]/10 blur-[128px]" />
-        </div>
-        {/* Lightweight mobile gradient fallback */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#0891B2]/5 md:hidden" />
+        {/* Subtle gradient wash */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#109C50]/10 via-transparent to-[#0891B2]/5" />
 
         {/* Grid overlay */}
         <div className="grid-overlay pointer-events-none absolute inset-0" />
@@ -111,7 +105,7 @@ export default function Home() {
           {/* Pill badge */}
           <a href="#cashflow-ai" className="animate-fade-in-up mb-8 inline-flex items-center gap-2 rounded-full border border-[#0891B2]/30 bg-[#0891B2]/10 px-4 py-1.5 text-sm text-[#CFFAFE] transition hover:bg-[#0891B2]/20">
             <svg
-              className="h-4 w-4 animate-pulse-soft"
+              className="h-4 w-4"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -167,7 +161,6 @@ export default function Home() {
         {/* Background accent */}
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-px w-3/4 -translate-x-1/2 bg-gradient-to-r from-transparent via-[#0891B2]/30 to-transparent" />
-          <div className="animate-glow-drift-slow absolute left-1/3 top-1/4 hidden h-[400px] w-[400px] rounded-full bg-[#0891B2]/8 blur-[128px] md:block" />
         </div>
 
         <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
@@ -380,7 +373,6 @@ export default function Home() {
       <section id="download" className="relative py-16 sm:py-24 md:py-32">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-0 h-px w-3/4 -translate-x-1/2 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-          <div className="animate-glow-drift absolute left-1/2 top-1/2 hidden h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#109C50]/10 blur-[128px] md:block" />
         </div>
 
         <div className="relative mx-auto max-w-3xl px-6 text-center lg:px-8">
