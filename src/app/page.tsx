@@ -5,6 +5,8 @@ import Image from "next/image";
 import RentalIcon from "@/components/icons/RentalIcon";
 import BRRRRIcon from "@/components/icons/BRRRRIcon";
 import FlipIcon from "@/components/icons/FlipIcon";
+import LinkedInIcon from "@/components/icons/LinkedInIcon";
+import InstagramIcon from "@/components/icons/InstagramIcon";
 
 const navLinks = [
   { label: "Features", href: "#cashflow-ai" },
@@ -446,25 +448,45 @@ export default function Home() {
                 Real estate investment calculators for smarter decisions.
               </p>
             </div>
-            <div className="flex gap-8 text-sm text-white/40">
-              <a
-                href="/contact"
-                className="transition hover:text-white"
-              >
-                Support
-              </a>
-              <a
-                href="/privacy"
-                className="transition hover:text-white"
-              >
-                Privacy
-              </a>
-              <a
-                href="/terms"
-                className="transition hover:text-white"
-              >
-                Terms
-              </a>
+            <div className="flex items-center gap-8">
+              <div className="flex gap-8 text-sm text-white/40">
+                <a
+                  href="/contact"
+                  className="transition hover:text-white"
+                >
+                  Support
+                </a>
+                <a
+                  href="/privacy"
+                  className="transition hover:text-white"
+                >
+                  Privacy
+                </a>
+                <a
+                  href="/terms"
+                  className="transition hover:text-white"
+                >
+                  Terms
+                </a>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href="https://www.linkedin.com/company/cashflow-underwriter/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/40 transition hover:text-white"
+                >
+                  <LinkedInIcon className="h-5 w-5" />
+                </a>
+                <a
+                  href="https://www.instagram.com/cashflowrei"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/40 transition hover:text-white"
+                >
+                  <InstagramIcon className="h-5 w-5" />
+                </a>
+              </div>
             </div>
           </div>
           <div className="mt-8 border-t border-white/[0.06] pt-8 text-center text-sm text-white/20">

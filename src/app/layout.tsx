@@ -23,6 +23,10 @@ export const metadata: Metadata = {
   title: "Cashflow - Real Estate Investment Calculators",
   description:
     "Analyze rental properties, BRRRR deals, fix & flips, wholesales, and more. Make smarter real estate investment decisions with Cashflow.",
+  icons: {
+    icon: "/images/CashflowAppIcon.png",
+    apple: "/images/CashflowAppIcon.png",
+  },
 };
 
 export default function RootLayout({
