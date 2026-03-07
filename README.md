@@ -1,1 +1,138 @@
-# cashflow-server
+# Cashflow Server
+
+Next.js marketing site and AWS Amplify backend for the Cashflow real estate investment app. This project serves two purposes:
+
+1. **Web frontend** — Marketing site with landing page, pricing, contact form, and legal pages
+2. **Backend infrastructure** — AWS Amplify serverless backend powering the React Native mobile app
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript (strict mode) |
+| Styling | Tailwind CSS v4 |
+| Fonts | Geist Sans + Geist Mono |
+| Backend | AWS Amplify Gen 2 |
+| Auth | AWS Cognito (email, Google, Apple Sign-In) |
+| Database | DynamoDB (6 tables) |
+| API | AppSync GraphQL + API Gateway (webhook) |
+| AI | Google Gemini, Perplexity |
+| Payments | RevenueCat (in-app subscriptions) |
+| Email | EmailJS (contact form) |
+
+## Project Structure
+
+```
+cashflow-server/
+  src/
+    app/                      # Next.js App Router pages
+      page.tsx                # Landing page (client component)
+      pricing/page.tsx        # Pricing tiers
+      contact/page.tsx        # Contact form (EmailJS)
+      privacy/page.tsx        # Privacy policy (server component)
+      terms/page.tsx          # Terms of use (server component)
+      layout.tsx              # Root layout (metadata, fonts, providers)
+      providers.tsx           # Amplify client initialization
+      globals.css             # Tailwind config + brand theme
+    components/
+      icons/                  # SVG icon components (Rental, BRRRR, Flip, social)
+    utils/
+      amplifyServerUtils.ts   # Amplify server-side helpers
+  amplify/                    # AWS Amplify backend (see below)
+  public/
+    images/                   # App icons, logos, screenshots
+  next.config.ts
+  amplify.yml                 # CI/CD pipeline config
+  package.json
+  tsconfig.json
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- AWS credentials configured (for Amplify backend)
+- `amplify_outputs.json` generated from a deployed or sandbox backend
+
+### Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start Amplify sandbox (deploys backend resources, generates amplify_outputs.json)
+npx ampx sandbox
+
+# In a separate terminal, start the Next.js dev server
+npm run dev
+```
+
+The site runs at `http://localhost:3000`.
+
+### Build & Deploy
+
+```bash
+# Production build
+npm run build
+
+# Start production server
+npm start
+
+# Deploy backend only
+npx ampx deploy
+
+# Generate GraphQL client types
+npx ampx generate graphql-client-code
+```
+
+CI/CD is configured in `amplify.yml` — Amplify Hosting builds both the backend (`ampx pipeline-deploy`) and frontend (`next build`) on push.
+
+## Web Pages
+
+| Route | Rendering | Description |
+|-------|-----------|-------------|
+| `/` | Client | Landing page — hero, feature highlights, Cashflow AI preview, download CTAs |
+| `/pricing` | Client | Tier comparison (Free / Investor / Mogul) with monthly/annual toggle |
+| `/contact` | Client | Contact form powered by EmailJS |
+| `/privacy` | Server | Privacy policy |
+| `/terms` | Server | Terms of use |
+
+There are no Next.js API routes — all backend logic runs through the Amplify GraphQL API and Lambda functions.
+
+## Styling
+
+- **Tailwind CSS v4** with PostCSS
+- **Brand colors** defined in `globals.css`:
+  - Primary green: `#109C50`
+  - Dark green: `#0E2C28`
+  - Primary blue: `#0891B2`
+  - Primary orange: `#CE7534`
+- **Utilities**: `.glass-card` for frosted glass effect, fade-in-up animations with staggered delays
+- **Accessibility**: Respects `prefers-reduced-motion`
+
+## Amplify Backend
+
+The `amplify/` directory contains the full serverless backend. See [amplify/README.md](./amplify/README.md) for the complete architecture overview.
+
+Key documentation:
+
+| Document | Description |
+|----------|-------------|
+| [amplify/README.md](./amplify/README.md) | Backend architecture, AWS services, auth config, deployment |
+| [amplify/data/README.md](./amplify/data/README.md) | GraphQL schema, DynamoDB models, data access patterns |
+| [amplify/functions/README.md](./amplify/functions/README.md) | All 14 Lambda functions, system flows, environment variables |
+| [amplify/functions/shared/README.md](./amplify/functions/shared/README.md) | Authorization, tier system, usage tracking, RevenueCat integration |
+| [amplify/functions/newRentalWorkflow/README.md](./amplify/functions/newRentalWorkflow/README.md) | Async property analysis workflow |
+| [amplify/functions/propertyDataGather/README.md](./amplify/functions/propertyDataGather/README.md) | Python module with 40+ property data functions |
+| [amplify/functions/revenueCatWebhook/README.md](./amplify/functions/revenueCatWebhook/README.md) | Subscription lifecycle webhook |
+
+## Environment & Config
+
+| File | Purpose |
+|------|---------|
+| `amplify_outputs.json` | Auto-generated Amplify config (not committed — generated by `ampx sandbox` or deploy) |
+| `amplify.yml` | CI/CD pipeline for Amplify Hosting |
+| `next.config.ts` | Minimal — only externalizes `@aws-crypto` for server |
+| `tsconfig.json` | Strict mode, path alias `@/*` maps to `./src/*` |
