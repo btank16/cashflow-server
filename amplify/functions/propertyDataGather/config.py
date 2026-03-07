@@ -19,7 +19,7 @@ RENTCAST_DEFAULT_LIMIT = 100  # Default limit, max is 500
 
 # Gemini Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_DEFAULT_MODEL = 'gemini-3-pro-preview'
+GEMINI_DEFAULT_MODEL = 'gemini-pro-latest'
 GEMINI_DEFAULT_TIMEOUT = 30
 GEMINI_THINKING_LEVEL = 'low'  # 'low' for simple tasks, 'high' for complex reasoning
 

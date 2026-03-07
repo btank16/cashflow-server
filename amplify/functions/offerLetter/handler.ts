@@ -849,7 +849,7 @@ export const handler = async (event: LambdaEvent): Promise<OfferLetterResponse> 
     console.log('Generating offer letter with Gemini...');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-flash-latest',
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
