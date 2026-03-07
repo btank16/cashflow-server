@@ -79,7 +79,7 @@ export const handler = async (event: LambdaEvent): Promise<GeminiArticlesRespons
     console.log('Calling Gemini API');
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-flash-latest',
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,

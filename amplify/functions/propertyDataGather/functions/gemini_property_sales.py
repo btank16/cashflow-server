@@ -124,7 +124,7 @@ def get_recent_property_sales(
     json_schema = PropertySalesOutput.model_json_schema()
 
     request = GeminiRequest(
-        model='gemini-3-pro-preview',
+        model='gemini-pro-latest',
         system_prompt=STANDARD_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         json_schema=json_schema,

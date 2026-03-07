@@ -24,7 +24,7 @@ class GeminiRequest(BaseModel):
 
     Example:
         request = GeminiRequest(
-            model='gemini-3-pro-preview',
+            model='gemini-pro-latest',
             system_prompt='You are a real estate analyst',
             user_prompt='What is the current median home price in Austin TX?',
             json_schema={
@@ -35,7 +35,7 @@ class GeminiRequest(BaseModel):
             enable_search_grounding=True
         )
     """
-    model: str = 'gemini-3-pro-preview'
+    model: str = 'gemini-pro-latest'
     system_prompt: str = ''
     user_prompt: str
     json_schema: Optional[Dict[str, Any]] = None
